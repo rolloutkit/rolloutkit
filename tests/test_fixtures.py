@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pytest
 import yaml
@@ -189,6 +190,92 @@ def test_allow_inconclusive_is_an_explicit_gating_escape_hatch(
     sp005 = next(result for result in report["contracts"] if result["id"] == "SP005")
     assert sp005["required"] is True
     assert sp005["status"] == "INCONCLUSIVE"
+
+
+def test_configless_one_line_cli_and_required_skip_gate(
+    built_images: None, tmp_path: Path
+) -> None:
+    command = [
+        str(_cli()),
+        "test",
+        "pfk-fixture-good",
+        "--port",
+        "8000",
+        "--ready-url",
+        "/ready",
+    ]
+
+    report_only = subprocess.run(
+        command,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert report_only.returncode == 0, report_only.stderr
+    for contract_id in ("SP001", "SP002", "SP003", "SP006"):
+        assert contract_id in report_only.stdout
+    assert "SP004 drain-window" in report_only.stdout
+    assert "WARN" in report_only.stdout
+    assert "SP005 inflight-completion" in report_only.stdout
+    assert "primary contract was not measured" in report_only.stdout
+    assert "--inflight-path" in report_only.stdout
+
+    gated = subprocess.run(
+        [*command, "--fail-on", "error", "--format", "json"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert gated.returncode == 1, gated.stderr
+    document = json.loads(gated.stdout)
+    assert document["profile"] == {
+        "platform": "kubernetes",
+        "termination_grace_period_ms": 30_000,
+        "pre_stop_ms": 0,
+        "shutdown_budget_ms": 30_000,
+        "drain_strategy": "none",
+    }
+    assert document["required_unmeasured"]["contracts"][0]["id"] == "SP005"
+
+    allowed = subprocess.run(
+        [
+            *command,
+            "--fail-on",
+            "error",
+            "--allow-inconclusive",
+            "--format",
+            "junit",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert allowed.returncode == 0, allowed.stderr
+    suite = ET.fromstring(allowed.stdout)
+    assert suite.attrib["tests"] == "6"
+    skipped = suite.findall("testcase/skipped")
+    assert len(skipped) == 1
+    sp005 = next(
+        case for case in suite.findall("testcase") if case.attrib["name"].startswith("SP005")
+    )
+    assert sp005.find("skipped") is not None
+    assert "primary contract was not measured" in sp005.find("skipped").attrib[
+        "message"
+    ]
+
+    measured = subprocess.run(
+        [str(_cli()), "measure", *command[2:]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert measured.returncode == 0, measured.stderr
+    assert "SHUTDOWN TIMELINE" in measured.stdout
+    assert "CONTRACTS" not in measured.stdout
 
 
 def test_delayed_bind_distinguishes_linux_direct_ip_from_desktop_proxy(

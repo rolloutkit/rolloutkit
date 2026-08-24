@@ -24,7 +24,11 @@ Resolver = Callable[[RunReport], Resolution]
 
 def _inflight_configured(report: RunReport) -> Resolution:
     configured = report.config.contracts.inflight is not None
-    return Resolution(configured, "no inflight contract configured")
+    return Resolution(
+        configured,
+        "primary contract was not measured; pass --inflight-path or configure "
+        "contracts.inflight",
+    )
 
 
 def _shutdown_started(report: RunReport) -> Resolution:
@@ -104,6 +108,11 @@ def _shutdown_budget_resolvable(report: RunReport) -> Resolution:
 
 
 def _direct_connection_path(report: RunReport) -> Resolution:
+    # PRESTOP does not inspect the post-T0 listener, and NONE is already a WARN
+    # by declaration. A desktop port proxy cannot make either fact unknown.
+    strategy = report.config.deployment.drain.strategy
+    if strategy in (DrainStrategy.PRESTOP, DrainStrategy.NONE):
+        return Resolution(True)
     return Resolution(
         not report.port_proxy_likely,
         "the published-port proxy accepts connections on behalf of the "
@@ -164,7 +173,9 @@ def evaluate_contracts(report: RunReport, contracts: tuple[Contract, ...]) -> li
 def _first_unmet(
     contract: Contract, report: RunReport
 ) -> tuple[Precondition, Resolution] | None:
-    for precondition in contract.PRECONDITIONS:
+    resolve = getattr(contract, "preconditions", None)
+    preconditions = resolve(report) if resolve is not None else contract.PRECONDITIONS
+    for precondition in preconditions:
         resolution = RESOLVERS[precondition.id](report)
         if not resolution.satisfied:
             return precondition, resolution

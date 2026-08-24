@@ -44,6 +44,24 @@ class DrainWindowContract:
         "none_uncovered": Status.WARN,
     }
 
+    def preconditions(self, report: RunReport):
+        """Timing gates apply only when the application owns the drain window.
+
+        ``none`` is already a useful warning from the declared profile, and
+        ``prestop`` delegates the gap to the platform before T0. Neither verdict
+        depends on post-SIGTERM listener timing or even an observed reaction.
+        """
+        if report.config.deployment.drain.strategy in (
+            DrainStrategy.NONE,
+            DrainStrategy.PRESTOP,
+        ):
+            return tuple(
+                condition
+                for condition in self.PRECONDITIONS
+                if condition is not SHUTDOWN_STARTED
+            )
+        return self.PRECONDITIONS
+
     def evaluate(self, report: RunReport) -> ContractResult:
         strategy = report.config.deployment.drain.strategy
         accept_window = report.accept_window_ms

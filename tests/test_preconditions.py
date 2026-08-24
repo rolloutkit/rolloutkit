@@ -186,6 +186,18 @@ def test_unconfigured_sp005_is_skip_before_measurement_preconditions() -> None:
     result = _by_id(report)["SP005"]
 
     assert (result.status, result.branch) == (Status.SKIP, "not_configured")
+    assert "primary contract was not measured" in result.summary
+    assert "--inflight-path" in result.summary
+
+
+def test_none_drain_warns_even_when_shutdown_never_started() -> None:
+    report = RunReport(
+        config=Config(target=Target(image="fixture:latest", port=8000))
+    )
+
+    result = _by_id(report)["SP004"]
+
+    assert (result.status, result.branch) == (Status.WARN, "none_uncovered")
 
 
 def test_connection_close_is_not_applicable_without_steady_state_keepalive() -> None:

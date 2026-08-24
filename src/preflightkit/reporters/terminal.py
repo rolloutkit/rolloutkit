@@ -86,6 +86,30 @@ def render(session: Session, version: str, console: Console | None = None) -> No
     _verdict_line(console, session)
 
 
+def render_measurement(
+    session: Session, version: str, console: Console | None = None
+) -> None:
+    """Render only observations; ``measure`` deliberately has no verdicts."""
+    console = console or Console()
+    if not session.runs:
+        console.print(f"[bold red]no run completed[/] {session.infrastructure_error or ''}")
+        return
+    last = session.runs[-1]
+    config = last.report.config
+    redactor = Redactor(config.secret_values())
+    console.print()
+    console.print(f"[bold]preflightkit {version}[/]   measurement {session.run_id}")
+    console.print(f"Target: {session.image}")
+    console.print(_profile_line(config))
+    if len(session.runs) > 1:
+        console.print(f"Repeats: {len(session.runs)}")
+    console.print()
+    _startup_block(console, last)
+    _baseline_block(console, last.report)
+    _timeline_block(console, last.report, redactor)
+    _environment_block(console, last.report)
+
+
 def _profile_line(config: Config) -> str:
     deployment = config.deployment
     parts = [str(deployment.platform), f"grace {format_ms(deployment.termination_grace_period)}"]

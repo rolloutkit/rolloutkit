@@ -1,7 +1,8 @@
 """Configuration model.
 
-The deployment profile is not decoration: without it there is no shutdown budget
-to compare against, and SP006 can only measure, never judge.
+The deployment profile is not decoration: it defines the shutdown budget used
+by SP006. A missing profile gets the documented Kubernetes 30-second default so
+the one-line CLI still produces a useful verdict.
 """
 
 from __future__ import annotations

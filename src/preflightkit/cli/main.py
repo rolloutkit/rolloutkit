@@ -13,11 +13,14 @@ from rich.console import Console
 
 from preflightkit import __version__
 from preflightkit.config.loader import ConfigError, load_config
+from preflightkit.config.models import Config, DrainStrategy
+from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.base import ContractResult, Status
+from preflightkit.contracts.catalog import CATALOG
 from preflightkit.engine.runner import InfrastructureError, run_session
 from preflightkit.evidence.redact import Redactor
 from preflightkit.evidence.model import Session
-from preflightkit.reporters import json_out, terminal
+from preflightkit.reporters import json_out, junit, terminal
 from preflightkit.runtime.docker import DockerError
 from preflightkit.runtime.socket import DockerUnavailable
 
@@ -45,6 +48,12 @@ class FailOn(StrEnum):
 
 
 class Format(StrEnum):
+    TERMINAL = "terminal"
+    JSON = "json"
+    JUNIT = "junit"
+
+
+class MeasureFormat(StrEnum):
     TERMINAL = "terminal"
     JSON = "json"
 
@@ -86,19 +95,44 @@ BLOCKING = {
 @app.command()
 def test(
     image: Annotated[str | None, typer.Argument(help="Image to test.")] = None,
-    port: Annotated[int | None, typer.Option("--port", "-p")] = None,
-    ready_url: Annotated[str | None, typer.Option("--ready-url")] = None,
-    config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
-    fail_on: Annotated[FailOn, typer.Option("--fail-on")] = FailOn.NONE,
+    port: Annotated[
+        int | None, typer.Option("--port", "-p", envvar="PREFLIGHTKIT_PORT")
+    ] = None,
+    ready_url: Annotated[
+        str | None, typer.Option("--ready-url", envvar="PREFLIGHTKIT_READY_URL")
+    ] = None,
+    inflight_path: Annotated[
+        str | None,
+        typer.Option("--inflight-path", envvar="PREFLIGHTKIT_INFLIGHT_PATH"),
+    ] = None,
+    grace: Annotated[
+        str | None, typer.Option("--grace", envvar="PREFLIGHTKIT_GRACE")
+    ] = None,
+    drain: Annotated[
+        DrainStrategy | None,
+        typer.Option("--drain", envvar="PREFLIGHTKIT_DRAIN"),
+    ] = None,
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", envvar="PREFLIGHTKIT_CONFIG")
+    ] = None,
+    fail_on: Annotated[
+        FailOn, typer.Option("--fail-on", envvar="PREFLIGHTKIT_FAIL_ON")
+    ] = FailOn.NONE,
     allow_inconclusive: Annotated[
         bool,
         typer.Option(
             "--allow-inconclusive",
+            envvar="PREFLIGHTKIT_ALLOW_INCONCLUSIVE",
             help="Permit required contracts to be SKIP or INCONCLUSIVE while gating.",
         ),
     ] = False,
-    output: Annotated[Format, typer.Option("--format")] = Format.TERMINAL,
-    repeat: Annotated[int, typer.Option("--repeat", min=1, max=20)] = 1,
+    output: Annotated[
+        Format, typer.Option("--format", envvar="PREFLIGHTKIT_FORMAT")
+    ] = Format.TERMINAL,
+    repeat: Annotated[
+        int,
+        typer.Option("--repeat", min=1, max=20, envvar="PREFLIGHTKIT_REPEAT"),
+    ] = 1,
 ) -> None:
     """Run the lifecycle experiment and evaluate the contracts.
 
@@ -107,32 +141,23 @@ def test(
     """
     try:
         config = load_config(
-            config_path=config_path, image=image, port=port, ready_url=ready_url
+            config_path=config_path,
+            image=image,
+            port=port,
+            ready_url=ready_url,
+            inflight_path=inflight_path,
+            grace=grace,
+            drain=str(drain) if drain is not None else None,
         )
     except ConfigError as exc:
-        err_console.print(f"[bold red]config error[/]\n{exc}")
-        raise typer.Exit(ExitCode.CONFIG_ERROR) from exc
+        _config_error(exc)
 
-    try:
-        session = anyio.run(lambda: run_session(config, repeat=repeat))
-    except INFRASTRUCTURE as exc:
-        err_console.print(f"[bold red]infrastructure error[/]\n{exc}")
-        _print_logs(config, getattr(exc, "logs", ""))
-        raise typer.Exit(ExitCode.INFRASTRUCTURE_ERROR) from exc
-    except Exception as exc:  # noqa: BLE001
-        # A daemon failure raised inside a task group is still a daemon failure.
-        # Classifying by the wrapper would report "Docker went away" as a bug in
-        # preflightkit, and exit 4 tells CI to look in the wrong place.
-        leaves = _leaves(exc)
-        if leaves and all(isinstance(leaf, INFRASTRUCTURE) for leaf in leaves):
-            err_console.print(f"[bold red]infrastructure error[/]\n{_describe(exc)}")
-            _print_logs(config, "")
-            raise typer.Exit(ExitCode.INFRASTRUCTURE_ERROR) from exc
-        err_console.print(f"[bold magenta]internal error[/]\n{_describe(exc)}")
-        raise typer.Exit(ExitCode.INTERNAL_ERROR) from exc
+    session = _run(config, repeat=repeat, evaluate=True)
 
     if output is Format.JSON:
         sys.stdout.write(json_out.dump(session, __version__) + "\n")
+    elif output is Format.JUNIT:
+        sys.stdout.write(junit.dump(session, __version__) + "\n")
     else:
         terminal.render(session, __version__, console)
 
@@ -146,6 +171,131 @@ def test(
                 "[dim]report-only: exit 0. Use --fail-on error to block CI.[/]"
             )
     raise typer.Exit(ExitCode.OK)
+
+
+@app.command()
+def measure(
+    image: Annotated[str | None, typer.Argument(help="Image to measure.")] = None,
+    port: Annotated[
+        int | None, typer.Option("--port", "-p", envvar="PREFLIGHTKIT_PORT")
+    ] = None,
+    ready_url: Annotated[
+        str | None, typer.Option("--ready-url", envvar="PREFLIGHTKIT_READY_URL")
+    ] = None,
+    inflight_path: Annotated[
+        str | None,
+        typer.Option("--inflight-path", envvar="PREFLIGHTKIT_INFLIGHT_PATH"),
+    ] = None,
+    grace: Annotated[
+        str | None, typer.Option("--grace", envvar="PREFLIGHTKIT_GRACE")
+    ] = None,
+    drain: Annotated[
+        DrainStrategy | None,
+        typer.Option("--drain", envvar="PREFLIGHTKIT_DRAIN"),
+    ] = None,
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", envvar="PREFLIGHTKIT_CONFIG")
+    ] = None,
+    repeat: Annotated[
+        int,
+        typer.Option("--repeat", min=1, max=20, envvar="PREFLIGHTKIT_REPEAT"),
+    ] = 1,
+    output: Annotated[
+        MeasureFormat, typer.Option("--format", envvar="PREFLIGHTKIT_FORMAT")
+    ] = MeasureFormat.TERMINAL,
+) -> None:
+    """Collect measurements and a timeline without contract verdicts or gating."""
+    try:
+        config = load_config(
+            config_path=config_path,
+            image=image,
+            port=port,
+            ready_url=ready_url,
+            inflight_path=inflight_path,
+            grace=grace,
+            drain=str(drain) if drain is not None else None,
+        )
+    except ConfigError as exc:
+        _config_error(exc)
+    session = _run(config, repeat=repeat, evaluate=False)
+    if output is MeasureFormat.JSON:
+        sys.stdout.write(json_out.dump(session, __version__) + "\n")
+    else:
+        terminal.render_measurement(session, __version__, console)
+    raise typer.Exit(ExitCode.OK)
+
+
+@app.command()
+def validate(
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", envvar="PREFLIGHTKIT_CONFIG")
+    ] = None,
+    image: Annotated[str | None, typer.Option("--image")] = None,
+    port: Annotated[int | None, typer.Option("--port", "-p")] = None,
+    ready_url: Annotated[str | None, typer.Option("--ready-url")] = None,
+    inflight_path: Annotated[str | None, typer.Option("--inflight-path")] = None,
+    grace: Annotated[str | None, typer.Option("--grace")] = None,
+    drain: Annotated[DrainStrategy | None, typer.Option("--drain")] = None,
+) -> None:
+    """Validate configuration without contacting Docker."""
+    try:
+        config = load_config(
+            config_path=config_path,
+            image=image,
+            port=port,
+            ready_url=ready_url,
+            inflight_path=inflight_path,
+            grace=grace,
+            drain=str(drain) if drain is not None else None,
+        )
+    except ConfigError as exc:
+        _config_error(exc)
+    console.print(
+        f"configuration valid: {config.target.image}:{config.target.port}; "
+        f"platform={config.deployment.platform}, "
+        f"grace={config.deployment.termination_grace_period}ms, "
+        f"drain={config.deployment.drain.strategy}"
+    )
+
+
+@app.command()
+def explain(
+    contract_id: Annotated[str, typer.Argument(help="Contract id, for example SP004.")]
+) -> None:
+    """Explain a contract from static, offline documentation."""
+    key = contract_id.upper()
+    doc = CATALOG.get(key)
+    if doc is None:
+        err_console.print(
+            f"[bold red]unknown contract[/] {contract_id}; use list-contracts"
+        )
+        raise typer.Exit(ExitCode.CONFIG_ERROR)
+    contract = next(item for item in ALL_CONTRACTS if item.id == key)
+    console.print(f"[bold]{doc.id} — {contract.name}[/]")
+    console.print(f"Measures: {doc.measures}")
+    console.print("Preconditions:")
+    for condition in doc.preconditions:
+        console.print(f"  - {condition}")
+    console.print("Verdicts:")
+    for status, meaning in doc.verdicts:
+        console.print(f"  {status:<12} {meaning}")
+    console.print(f"Why it matters: {doc.why}")
+    if doc.strategy_notes:
+        console.print("Drain strategies:")
+        for note in doc.strategy_notes:
+            console.print(f"  - {note}")
+
+
+@app.command("list-contracts")
+def list_contracts() -> None:
+    """List contract identity, required status, and drain applicability."""
+    console.print("ID     NAME                    REQUIRED  STRATEGIES")
+    for contract in ALL_CONTRACTS:
+        doc = CATALOG[contract.id]
+        required = "yes" if contract.required else "no"
+        console.print(
+            f"{contract.id:<6} {contract.name:<23} {required:<9} {doc.strategies}"
+        )
 
 
 def _blocking_results(
@@ -167,6 +317,30 @@ def _blocking_results(
 def version() -> None:
     """Print the version."""
     console.print(__version__)
+
+
+def _config_error(exc: ConfigError) -> None:
+    err_console.print(f"[bold red]config error[/]\n{exc}")
+    raise typer.Exit(ExitCode.CONFIG_ERROR) from exc
+
+
+def _run(config: Config, *, repeat: int, evaluate: bool) -> Session:
+    try:
+        return anyio.run(
+            lambda: run_session(config, repeat=repeat, evaluate=evaluate)
+        )
+    except INFRASTRUCTURE as exc:
+        err_console.print(f"[bold red]infrastructure error[/]\n{exc}")
+        _print_logs(config, getattr(exc, "logs", ""))
+        raise typer.Exit(ExitCode.INFRASTRUCTURE_ERROR) from exc
+    except Exception as exc:  # noqa: BLE001
+        leaves = _leaves(exc)
+        if leaves and all(isinstance(leaf, INFRASTRUCTURE) for leaf in leaves):
+            err_console.print(f"[bold red]infrastructure error[/]\n{_describe(exc)}")
+            _print_logs(config, "")
+            raise typer.Exit(ExitCode.INFRASTRUCTURE_ERROR) from exc
+        err_console.print(f"[bold magenta]internal error[/]\n{_describe(exc)}")
+        raise typer.Exit(ExitCode.INTERNAL_ERROR) from exc
 
 
 if __name__ == "__main__":

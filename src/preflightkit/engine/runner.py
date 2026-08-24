@@ -24,7 +24,9 @@ class InfrastructureError(Exception):
         self.logs = logs
 
 
-async def run_session(config: Config, *, repeat: int = 1) -> Session:
+async def run_session(
+    config: Config, *, repeat: int = 1, evaluate: bool = True
+) -> Session:
     """Run the experiment `repeat` times and evaluate the contracts.
 
     Anything Docker refuses to do — a missing image, a container that will not
@@ -34,12 +36,12 @@ async def run_session(config: Config, *, repeat: int = 1) -> Session:
     when what they actually need to do is build the image.
     """
     try:
-        return await _run_session(config, repeat=repeat)
+        return await _run_session(config, repeat=repeat, evaluate=evaluate)
     except DockerError as exc:
         raise InfrastructureError(str(exc)) from exc
 
 
-async def _run_session(config: Config, *, repeat: int) -> Session:
+async def _run_session(config: Config, *, repeat: int, evaluate: bool) -> Session:
     session = Session(run_id=new_run_id(), image=config.target.image)
     async with DockerRuntime() as runtime:
         for _ in range(repeat):
@@ -52,6 +54,7 @@ async def _run_session(config: Config, *, repeat: int) -> Session:
                 report=report,
                 duration_ms=(now_ns() - started) / 1_000_000,
             )
-            outcome.results = evaluate_contracts(report, ALL_CONTRACTS)
+            if evaluate:
+                outcome.results = evaluate_contracts(report, ALL_CONTRACTS)
             session.runs.append(outcome)
     return session

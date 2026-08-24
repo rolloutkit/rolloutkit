@@ -8,6 +8,33 @@ it actually behaves. Every verdict comes with evidence.
 preflightkit does not tell you that "graceful shutdown may be misconfigured". It
 shows you a timeline and tells you which requests were destroyed.
 
+## Quick start
+
+You can get a useful lifecycle report without creating a configuration file:
+
+```console
+preflightkit test my-api:latest --port 8000 --ready-url /ready
+```
+
+Without a deployment profile, preflightkit uses `platform: kubernetes`, a
+30-second grace period, `pre_stop: none`, and `drain: none`. The missing drain
+mechanism makes SP004 `WARN`; this is expected because nothing covers routing
+propagation during shutdown. Without `contracts.inflight`, required contract
+SP005 is `SKIP` and tells you to pass `--inflight-path` or configure the
+contract. SP001, SP002, SP003, and SP006 still produce useful verdicts.
+
+Use `--fail-on error` to gate on failures. Required `SKIP` and `INCONCLUSIVE`
+contracts also block that gate unless you pass `--allow-inconclusive`. CLI
+flags override `PREFLIGHTKIT_*` environment variables, which override
+`preflightkit.yaml`; model defaults apply last.
+
+The remaining commands don't require AI or hidden configuration. `measure`
+prints measurements and a timeline without contract verdicts or gating,
+`validate` checks configuration without contacting Docker, `explain SPXXX`
+prints static contract documentation, and `list-contracts` lists the available
+contracts. Use `--format json` or `--format junit` when another tool consumes a
+`test` report.
+
 ```
 preflightkit v0.1   run pfk_01J8C4XK
 Target: my-api:latest
@@ -55,9 +82,11 @@ Trivy, Checkov, KubeLinter, Polaris, or Semgrep.
   externally observable "request in progress" signal, which needs its own design.
 - **macOS.** Every run still gets a user-defined bridge, but Docker Desktop's
   container IPs are not host-routable. Traffic therefore falls back to a
-  published port, reports `port_proxy_likely: true`, and marks SP001's TCP-open
-  sub-measurement and SP004 `INCONCLUSIVE`. Readiness remains measurable. Linux
-  sends traffic directly to the unpublished container IP.
+  published port and reports `port_proxy_likely: true`. SP001's TCP-open
+  sub-measurement is `INCONCLUSIVE`. SP004 is also `INCONCLUSIVE` when an
+  `in_app` strategy requires direct listener timing; `none` still warns, and
+  `prestop` remains applicable without that timing. Readiness remains
+  measurable. Linux sends traffic directly to the unpublished container IP.
 - **Windows** is not supported.
 
 ## Security

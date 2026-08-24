@@ -77,12 +77,18 @@ def load_config(
     image: str | None = None,
     port: int | None = None,
     ready_url: str | None = None,
+    inflight_path: str | None = None,
+    grace: str | None = None,
+    drain: str | None = None,
     cwd: Path | None = None,
 ) -> Config:
     """Build the effective config. Raises ConfigError with a usable message."""
     cwd = cwd or Path.cwd()
     raw: dict[str, Any] = {}
 
+    env = dict(os.environ)
+    if config_path is None and env.get("PREFLIGHTKIT_CONFIG"):
+        config_path = Path(env["PREFLIGHTKIT_CONFIG"])
     path = config_path or find_config_file(cwd)
     if config_path is not None and not config_path.is_file():
         raise ConfigError(f"config file not found: {config_path}")
@@ -97,7 +103,6 @@ def load_config(
             raise ConfigError(f"{path}: top level must be a mapping")
         raw = loaded
 
-    env = dict(os.environ)
     target = raw.setdefault("target", {})
     if not isinstance(target, dict):
         raise ConfigError("target must be a mapping")
@@ -118,12 +123,37 @@ def load_config(
     raw = _expand(raw, env)
     target = raw["target"]
 
+    # Explicit command-line values win over process environment. Both override
+    # the file, while model defaults fill anything the file omits.
+    image = image if image is not None else env.get("PREFLIGHTKIT_IMAGE")
+    port = port if port is not None else env.get("PREFLIGHTKIT_PORT")  # type: ignore[assignment]
+    ready_url = ready_url if ready_url is not None else env.get("PREFLIGHTKIT_READY_URL")
+    inflight_path = (
+        inflight_path
+        if inflight_path is not None
+        else env.get("PREFLIGHTKIT_INFLIGHT_PATH")
+    )
+    grace = grace if grace is not None else env.get("PREFLIGHTKIT_GRACE")
+    drain = drain if drain is not None else env.get("PREFLIGHTKIT_DRAIN")
+
     if image is not None:
         target["image"] = image
     if port is not None:
         target["port"] = port
     if ready_url is not None:
         raw.setdefault("probes", {}).setdefault("readiness", {})["path"] = ready_url
+    if inflight_path is not None:
+        request = (
+            raw.setdefault("contracts", {})
+            .setdefault("inflight", {})
+            .setdefault("request", {})
+        )
+        request["path"] = inflight_path
+        request.setdefault("expected_duration", "5s")
+    if grace is not None:
+        raw.setdefault("deployment", {})["termination_grace_period"] = grace
+    if drain is not None:
+        raw.setdefault("deployment", {}).setdefault("drain", {})["strategy"] = drain
 
     if not target.get("image"):
         raise ConfigError(

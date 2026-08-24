@@ -1,0 +1,36 @@
+# No SIGTERM handler at all — which in a container does not mean "the default
+# disposition kills it". It means nothing happens.
+#
+# The kernel discards signals whose disposition is the default for the init
+# process of a PID namespace, and PID 1 in a container is exactly that. So the
+# app that "does not need a handler because the default is to die" never dies:
+# it burns the whole grace period and leaves on SIGKILL. Kubernetes does the
+# same thing to it, every rollout, for the full terminationGracePeriodSeconds.
+#
+# The budget here is deliberately short. The finding does not get truer with a
+# 30 second wait, and CI pays for that wait on every run.
+version: 1
+
+target:
+  image: pfk-fixture-stdlib
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 4s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

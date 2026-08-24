@@ -1,0 +1,24 @@
+version: 1
+
+target:
+  image: pfk-fixture-stdlib
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+    STARTUP_DELAY_SECONDS: "3"
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 10s
+
+timeouts:
+  startup: 15s

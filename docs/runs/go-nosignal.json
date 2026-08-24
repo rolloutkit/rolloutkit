@@ -1,0 +1,488 @@
+{
+  "version": "1",
+  "tool_version": "0.1.0.dev0",
+  "run_id": "pfk_2JCZ7ZKWOM",
+  "target": {
+    "image": "pfk-go-nosignal",
+    "port": 8000
+  },
+  "profile": {
+    "platform": "kubernetes",
+    "termination_grace_period_ms": 30000,
+    "pre_stop_ms": 5000,
+    "shutdown_budget_ms": 25000,
+    "drain_strategy": "prestop"
+  },
+  "result": "FAIL",
+  "repeats": 1,
+  "duration_ms": 278.962791,
+  "environment": {
+    "host_os": "Darwin 25.5.0",
+    "cpu_count": 11,
+    "load_average": [
+      2.89599609375,
+      3.2900390625,
+      3.453125
+    ],
+    "docker_endpoint": "/redacted/docker.sock (docker context 'desktop-linux')",
+    "docker_server": {
+      "version": "29.7.2",
+      "os": "linux",
+      "arch": "arm64"
+    },
+    "measurement_jitter_ms": 1.818209,
+    "port_proxy_likely": true,
+    "measurement_note": "Timestamps are sourced from monotonic_ns. Observations made through the Docker daemon are bounded by measurement_jitter_ms.",
+    "docker_init_injected": false
+  },
+  "baseline": {
+    "samples": 25,
+    "completed": 25,
+    "succeeded": 25,
+    "healthy": true,
+    "statuses": {
+      "200": 25
+    },
+    "outcomes": {
+      "completed": 25
+    },
+    "p50_ms": 56.628,
+    "p90_ms": 57.126,
+    "min_ms": 56.193,
+    "max_ms": 57.326,
+    "suggested_sigterm_after_ms": 28,
+    "sigterm_after_ms": 28,
+    "sigterm_after_source": "baseline"
+  },
+  "timeline": [
+    {
+      "event": "ContainerStarted",
+      "offset_ms": -102.294,
+      "container": "pfk-target",
+      "host_port": 59277
+    },
+    {
+      "event": "PortOpened",
+      "offset_ms": -101.724,
+      "port": 8000
+    },
+    {
+      "event": "ReadinessPassed",
+      "offset_ms": -87.885,
+      "status": 200
+    },
+    {
+      "event": "BaselineMeasured",
+      "offset_ms": -29.426,
+      "samples": 25,
+      "succeeded": 25,
+      "p50_ms": 56.627833
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.062,
+      "request_id": 1
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.029,
+      "request_id": 2
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.008,
+      "request_id": 3
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.989,
+      "request_id": 4
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.972,
+      "request_id": 5
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.956,
+      "request_id": 6
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.941,
+      "request_id": 7
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.925,
+      "request_id": 8
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.907,
+      "request_id": 9
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -28.889,
+      "request_id": 10
+    },
+    {
+      "event": "SignalSent",
+      "offset_ms": 0.0,
+      "signal": "SIGTERM"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.097,
+      "request_id": 3,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.243,
+      "request_id": 8,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.257,
+      "request_id": 9,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.534,
+      "request_id": 2,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.545,
+      "request_id": 5,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.553,
+      "request_id": 4,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.559,
+      "request_id": 6,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.566,
+      "request_id": 7,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.573,
+      "request_id": 1,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "RequestReset",
+      "offset_ms": 7.58,
+      "request_id": 10,
+      "phase": "awaiting_response",
+      "outcome": "reset_before_response",
+      "status": null,
+      "body_bytes": 0,
+      "expected_body_bytes": null,
+      "detail": "peer closed the connection (FIN)"
+    },
+    {
+      "event": "ReadinessFailed",
+      "offset_ms": 19.537,
+      "status": null,
+      "mode": "unreachable",
+      "detail": "RemoteProtocolError: Server disconnected without sending a response."
+    },
+    {
+      "event": "ProcessExited",
+      "offset_ms": 84.199,
+      "exit_code": 2
+    }
+  ],
+  "contracts": [
+    {
+      "id": "SP001",
+      "name": "startup",
+      "status": "PASS",
+      "branch": "within_budget",
+      "summary": "ready in 14ms (budget 15s)",
+      "expected": "ready within 15s",
+      "actual": {
+        "tcp_open_ms": 0.569459,
+        "tcp_open_is_meaningful": false,
+        "readiness_ready_ms": 14.408792,
+        "readiness_status": 200
+      },
+      "evidence": {},
+      "notes": [
+        "The TCP timestamp was taken through a port proxy (Docker Desktop forwards published ports), so it measures the proxy, not the application. Readiness is the trustworthy startup signal here."
+      ]
+    },
+    {
+      "id": "SP003",
+      "name": "signal-handling",
+      "status": "PASS",
+      "branch": "clean_exit",
+      "summary": "exit 2 after 84ms",
+      "expected": "process exits cleanly on SIGTERM",
+      "actual": {
+        "exit_code": 2,
+        "sigkill_effective": false,
+        "shutdown_duration_ms": 84.199459,
+        "reacted": {
+          "readiness_changed": true,
+          "process_exited": true
+        }
+      },
+      "evidence": {
+        "stop_signal": "SIGTERM (default)",
+        "entrypoint": [
+          "/server"
+        ],
+        "cmd": null,
+        "entrypoint_shell_form": false,
+        "cmd_shell_form": false,
+        "docker_init_injected": false,
+        "sigkill_sent": false,
+        "logs_tail": "2026/08/21 18:39:46 listening on :8000 (no signal handling)\n"
+      },
+      "notes": [
+        "preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and the measurement would describe tini, not your app."
+      ]
+    },
+    {
+      "id": "SP005",
+      "name": "inflight-completion",
+      "status": "FAIL",
+      "branch": "requests_destroyed",
+      "summary": "0/10 completed, 10 destroyed",
+      "expected": "10/10 requests completed",
+      "actual": {
+        "issued": 10,
+        "in_flight_at_sigterm": 10,
+        "completed": 0,
+        "reset": 10
+      },
+      "evidence": {
+        "broken_requests": [
+          {
+            "request_id": 1,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.573417,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 2,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.534292,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 3,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.096709,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 4,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.552709,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 5,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.545375,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 6,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.55925,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 7,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.565959,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 8,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.243209,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 9,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.257167,
+            "detail": "peer closed the connection (FIN)"
+          },
+          {
+            "request_id": 10,
+            "outcome": "reset_before_response",
+            "phase": "awaiting_response",
+            "status": null,
+            "body_bytes": 0,
+            "expected_body_bytes": null,
+            "offset_ms": 7.58,
+            "detail": "peer closed the connection (FIN)"
+          }
+        ],
+        "keepalive_closed_cleanly": {
+          "responses_after_sigterm": 0,
+          "announced_connection_close": 0
+        },
+        "window": {
+          "sigterm_after_ms": 28,
+          "sigterm_after_source": "baseline",
+          "measurement_jitter_ms": 1.818,
+          "jitter_ratio": 15.4,
+          "baseline_p50_ms": 56.628
+        }
+      },
+      "notes": []
+    },
+    {
+      "id": "SP006",
+      "name": "shutdown-deadline",
+      "status": "PASS",
+      "branch": "within_budget",
+      "summary": "exited in 84ms of 25s",
+      "expected": "exit within 25s",
+      "actual": {
+        "shutdown_duration_ms": 84.199459,
+        "shutdown_budget_ms": 25000,
+        "margin_ms": 24915.800541,
+        "sigkill_sent": false,
+        "sigkill_effective": false
+      },
+      "evidence": {},
+      "notes": [
+        "Budget is terminationGracePeriod (30s) minus preStop (5s). The hook is spent from the same window."
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "duration_ms": 278.962791,
+      "startup_duration_ms": 14.408792,
+      "shutdown_duration_ms": 84.199459,
+      "readiness_drop_delay_ms": 19.537292,
+      "readiness_drop_mode": "unreachable",
+      "exit_code": 2,
+      "sigkill_sent": false,
+      "sigkill_effective": false,
+      "contracts": {
+        "SP001": "PASS",
+        "SP003": "PASS",
+        "SP005": "FAIL",
+        "SP006": "PASS"
+      }
+    }
+  ],
+  "shutdown_duration_ms_spread": {
+    "median": 84.199459,
+    "min": 84.199459,
+    "max": 84.199459
+  },
+  "startup_duration_ms_spread": {
+    "median": 14.408792,
+    "min": 14.408792,
+    "max": 14.408792
+  }
+}

@@ -1,0 +1,38 @@
+# The target is signal-correct, but its steady-state request path is not: every
+# baseline response is 500. SP005 must be INCONCLUSIVE without suppressing the
+# independent SP003 and SP006 verdicts.
+version: 1
+
+target:
+  image: pfk-fixture-stdlib
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 2s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /fail
+      expected_duration: 1s
+    concurrent: 10
+    sigterm_after: 50ms
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

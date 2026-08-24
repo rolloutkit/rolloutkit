@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY app.py entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+EXPOSE 8000
+# Exec-form on purpose: the wrapper is here to forward the signal, not to
+# demonstrate the shell-form trap that SP003's static evidence already reports.
+ENTRYPOINT ["/app/entrypoint.sh"]

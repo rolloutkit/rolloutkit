@@ -1,0 +1,31 @@
+# Same image, opposite finding. The handler now takes five seconds and then
+# exits 0 — nothing is violated, but only a second of the six-second budget is
+# left over. Slow is not late, and SP006 has to say so with a WARN rather than
+# a FAIL.
+version: 1
+
+target:
+  image: pfk-fixture-ignores
+  port: 8000
+  env:
+    SHUTDOWN_DELAY_MS: "5000"
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 6s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

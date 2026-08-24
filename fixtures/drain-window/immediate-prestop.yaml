@@ -1,0 +1,13 @@
+version: 1
+target:
+  image: pfk-fixture-drain-window
+  port: 8000
+  env: {DRAIN_SECONDS: "0", EXIT_SECONDS: "0.3"}
+deployment:
+  termination_grace_period: 30s
+  pre_stop: {type: sleep, duration: 5s}
+  drain: {strategy: prestop}
+probes:
+  readiness: {path: /ready, expected_status: 200}
+contracts:
+  startup: {budget: 15s}

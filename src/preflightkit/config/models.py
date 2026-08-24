@@ -1,0 +1,201 @@
+"""Configuration model.
+
+The deployment profile is not decoration: without it there is no shutdown budget
+to compare against, and SP006 can only measure, never judge.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+from preflightkit.config.duration import Duration
+from preflightkit.evidence.redact import names_a_secret
+
+
+class Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class Platform(StrEnum):
+    KUBERNETES = "kubernetes"
+    DOCKER = "docker"
+    ECS = "ecs"
+    NOMAD = "nomad"
+
+
+class PreStopType(StrEnum):
+    NONE = "none"
+    SLEEP = "sleep"
+    EXEC = "exec"
+
+
+class DrainStrategy(StrEnum):
+    PRESTOP = "prestop"
+    IN_APP = "in_app"
+    NONE = "none"
+
+
+class InflightMode(StrEnum):
+    LONG_REQUESTS = "long_requests"
+    CONTINUOUS_LOAD = "continuous_load"
+
+
+class Target(Strict):
+    image: str
+    port: int = Field(ge=1, le=65535)
+    env: dict[str, str] = Field(default_factory=dict)
+    env_file: Path | None = None
+    command: list[str] | None = None
+
+
+class Service(Strict):
+    """A dependency reachable only inside the run-scoped bridge network."""
+
+    image: str
+    env: dict[str, str] = Field(default_factory=dict)
+    env_file: Path | None = None
+    command: list[str] | None = None
+
+
+class PreStop(Strict):
+    type: PreStopType = PreStopType.NONE
+    duration: Duration = 0
+
+    @model_validator(mode="after")
+    def _sleep_needs_duration(self) -> PreStop:
+        if self.type is PreStopType.SLEEP and self.duration <= 0:
+            raise ValueError("pre_stop.type 'sleep' requires a non-zero duration")
+        return self
+
+
+class Drain(Strict):
+    strategy: DrainStrategy = DrainStrategy.NONE
+    in_app_window: Duration = 0
+
+    @model_validator(mode="after")
+    def _in_app_needs_window(self) -> Drain:
+        if self.strategy is DrainStrategy.IN_APP and self.in_app_window <= 0:
+            raise ValueError(
+                "drain.strategy 'in_app' requires a non-zero in_app_window"
+            )
+        return self
+
+
+class Deployment(Strict):
+    platform: Platform = Platform.KUBERNETES
+    termination_grace_period: Duration = 30_000
+    pre_stop: PreStop = PreStop()
+    drain: Drain = Drain()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def shutdown_budget_ms(self) -> int:
+        """What the app actually gets: the grace period minus what preStop ate.
+
+        terminationGracePeriodSeconds is counted from the moment the pod is marked
+        for deletion, not from SIGTERM. The preStop hook runs inside that window,
+        so a 5s sleep leaves 25s of a 30s grace period.
+        """
+        return self.termination_grace_period - self.pre_stop.duration
+
+    @model_validator(mode="after")
+    def _budget_must_be_positive(self) -> Deployment:
+        if self.shutdown_budget_ms <= 0:
+            raise ValueError(
+                "pre_stop.duration consumes the entire termination_grace_period; "
+                "no shutdown budget is left for the application"
+            )
+        return self
+
+
+class Probe(Strict):
+    path: str = "/ready"
+    expected_status: int = 200
+
+
+class Probes(Strict):
+    readiness: Probe = Probe()
+    health: Probe | None = None
+
+
+class StartupContract(Strict):
+    budget: Duration = 15_000
+
+
+class ReadinessContract(Strict):
+    latency_budget: Duration = 500
+
+
+class InflightRequest(Strict):
+    method: str = "GET"
+    path: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    expected_duration: Duration = 5_000
+
+
+class InflightContract(Strict):
+    mode: InflightMode = InflightMode.LONG_REQUESTS
+    request: InflightRequest
+    concurrent: int = Field(default=10, ge=1, le=200)
+    #: When unset, derived from the baseline burst: half the measured p50. Left
+    #: as a guess it is the single hardest number in the config to get right —
+    #: too late and every request has already finished, too early and none has
+    #: started. The service knows the answer; ask it instead.
+    sigterm_after: Duration | None = None
+
+    @model_validator(mode="after")
+    def _sigterm_must_land_mid_request(self) -> InflightContract:
+        if self.sigterm_after is None:
+            return self
+        if self.sigterm_after >= self.request.expected_duration:
+            raise ValueError(
+                f"sigterm_after ({self.sigterm_after}ms) must be shorter than "
+                f"request.expected_duration ({self.request.expected_duration}ms), "
+                "otherwise the requests finish before the signal and the contract "
+                "proves nothing"
+            )
+        return self
+
+
+class Contracts(Strict):
+    startup: StartupContract = StartupContract()
+    readiness: ReadinessContract = ReadinessContract()
+    inflight: InflightContract | None = None
+
+
+class Timeouts(Strict):
+    overall: Duration = 120_000
+    startup: Duration = 30_000
+    shutdown: Duration = 45_000
+
+
+class Config(Strict):
+    version: int = 1
+    target: Target
+    services: dict[str, Service] = Field(default_factory=dict)
+    deployment: Deployment = Deployment()
+    probes: Probes = Probes()
+    contracts: Contracts = Contracts()
+    timeouts: Timeouts = Timeouts()
+
+    def secret_values(self) -> list[str]:
+        """Values that must never reach a report verbatim.
+
+        Env values are filtered by variable *name* — see `redact.names_a_secret`.
+        Masking every value hid a hostname in a crash log and cost more than it
+        protected. Headers are not filtered: a header carrying a credential is
+        rarely named after one.
+        """
+        secrets = [v for k, v in self.target.env.items() if v and names_a_secret(k)]
+        for service in self.services.values():
+            secrets += [
+                value
+                for key, value in service.env.items()
+                if value and names_a_secret(key)
+            ]
+        if self.contracts.inflight is not None:
+            secrets += [v for v in self.contracts.inflight.request.headers.values() if v]
+        return secrets

@@ -1,0 +1,357 @@
+{
+  "version": "1",
+  "tool_version": "0.1.0.dev0",
+  "run_id": "pfk_SP6ZL7IAGE",
+  "target": {
+    "image": "pfk-go-graceful",
+    "port": 8000
+  },
+  "profile": {
+    "platform": "kubernetes",
+    "termination_grace_period_ms": 30000,
+    "pre_stop_ms": 5000,
+    "shutdown_budget_ms": 25000,
+    "drain_strategy": "prestop"
+  },
+  "result": "PASS",
+  "repeats": 1,
+  "duration_ms": 298.592,
+  "environment": {
+    "host_os": "Darwin 25.5.0",
+    "cpu_count": 11,
+    "load_average": [
+      2.89599609375,
+      3.2900390625,
+      3.453125
+    ],
+    "docker_endpoint": "/redacted/docker.sock (docker context 'desktop-linux')",
+    "docker_server": {
+      "version": "29.7.2",
+      "os": "linux",
+      "arch": "arm64"
+    },
+    "measurement_jitter_ms": 1.072792,
+    "port_proxy_likely": true,
+    "measurement_note": "Timestamps are sourced from monotonic_ns. Observations made through the Docker daemon are bounded by measurement_jitter_ms.",
+    "docker_init_injected": false
+  },
+  "baseline": {
+    "samples": 25,
+    "completed": 25,
+    "succeeded": 25,
+    "healthy": true,
+    "statuses": {
+      "200": 25
+    },
+    "outcomes": {
+      "completed": 25
+    },
+    "p50_ms": 57.806,
+    "p90_ms": 58.121,
+    "min_ms": 57.309,
+    "max_ms": 58.173,
+    "suggested_sigterm_after_ms": 29,
+    "sigterm_after_ms": 29,
+    "sigterm_after_source": "baseline"
+  },
+  "timeline": [
+    {
+      "event": "ContainerStarted",
+      "offset_ms": -104.594,
+      "container": "pfk-target",
+      "host_port": 59357
+    },
+    {
+      "event": "PortOpened",
+      "offset_ms": -104.037,
+      "port": 8000
+    },
+    {
+      "event": "ReadinessPassed",
+      "offset_ms": -89.885,
+      "status": 200
+    },
+    {
+      "event": "BaselineMeasured",
+      "offset_ms": -30.663,
+      "samples": 25,
+      "succeeded": 25,
+      "p50_ms": 57.805791
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -30.057,
+      "request_id": 1
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -30.011,
+      "request_id": 2
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.985,
+      "request_id": 3
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.964,
+      "request_id": 4
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.943,
+      "request_id": 5
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.924,
+      "request_id": 6
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.905,
+      "request_id": 7
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.886,
+      "request_id": 8
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.867,
+      "request_id": 9
+    },
+    {
+      "event": "RequestStarted",
+      "offset_ms": -29.849,
+      "request_id": 10
+    },
+    {
+      "event": "SignalSent",
+      "offset_ms": 0.0,
+      "signal": "SIGTERM"
+    },
+    {
+      "event": "ReadinessFailed",
+      "offset_ms": 20.87,
+      "status": null,
+      "mode": "unreachable",
+      "detail": "RemoteProtocolError: Server disconnected without sending a response."
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.483,
+      "request_id": 3,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.503,
+      "request_id": 6,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.57,
+      "request_id": 5,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.582,
+      "request_id": 7,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.593,
+      "request_id": 8,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.603,
+      "request_id": 10,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.664,
+      "request_id": 4,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.678,
+      "request_id": 9,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.687,
+      "request_id": 1,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "RequestCompleted",
+      "offset_ms": 22.696,
+      "request_id": 2,
+      "status": 200,
+      "body_bytes": 17,
+      "connection_close": true
+    },
+    {
+      "event": "ProcessExited",
+      "offset_ms": 106.295,
+      "exit_code": 0
+    }
+  ],
+  "contracts": [
+    {
+      "id": "SP001",
+      "name": "startup",
+      "status": "PASS",
+      "branch": "within_budget",
+      "summary": "ready in 14ms (budget 15s)",
+      "expected": "ready within 15s",
+      "actual": {
+        "tcp_open_ms": 0.556041,
+        "tcp_open_is_meaningful": false,
+        "readiness_ready_ms": 14.708458,
+        "readiness_status": 200
+      },
+      "evidence": {},
+      "notes": [
+        "The TCP timestamp was taken through a port proxy (Docker Desktop forwards published ports), so it measures the proxy, not the application. Readiness is the trustworthy startup signal here."
+      ]
+    },
+    {
+      "id": "SP003",
+      "name": "signal-handling",
+      "status": "PASS",
+      "branch": "clean_exit",
+      "summary": "exit 0 after 106ms",
+      "expected": "process exits cleanly on SIGTERM",
+      "actual": {
+        "exit_code": 0,
+        "sigkill_effective": false,
+        "shutdown_duration_ms": 106.295334,
+        "reacted": {
+          "readiness_changed": true,
+          "process_exited": true
+        }
+      },
+      "evidence": {
+        "stop_signal": "SIGTERM (default)",
+        "entrypoint": [
+          "/server"
+        ],
+        "cmd": null,
+        "entrypoint_shell_form": false,
+        "cmd_shell_form": false,
+        "docker_init_injected": false,
+        "sigkill_sent": false,
+        "logs_tail": "2026/08/21 18:39:47 listening on :8000 (graceful shutdown)\n2026/08/21 18:39:47 received terminated, shutting down\n2026/08/21 18:39:47 shutdown complete\n"
+      },
+      "notes": [
+        "preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and the measurement would describe tini, not your app."
+      ]
+    },
+    {
+      "id": "SP005",
+      "name": "inflight-completion",
+      "status": "PASS",
+      "branch": "all_completed",
+      "summary": "10/10 in-flight requests completed",
+      "expected": "10/10 requests completed",
+      "actual": {
+        "issued": 10,
+        "in_flight_at_sigterm": 10,
+        "completed": 10,
+        "reset": 0
+      },
+      "evidence": {
+        "broken_requests": [],
+        "keepalive_closed_cleanly": {
+          "responses_after_sigterm": 10,
+          "announced_connection_close": 10
+        },
+        "window": {
+          "sigterm_after_ms": 29,
+          "sigterm_after_source": "baseline",
+          "measurement_jitter_ms": 1.073,
+          "jitter_ratio": 27.0,
+          "baseline_p50_ms": 57.806
+        }
+      },
+      "notes": []
+    },
+    {
+      "id": "SP006",
+      "name": "shutdown-deadline",
+      "status": "PASS",
+      "branch": "within_budget",
+      "summary": "exited in 106ms of 25s",
+      "expected": "exit within 25s",
+      "actual": {
+        "shutdown_duration_ms": 106.295334,
+        "shutdown_budget_ms": 25000,
+        "margin_ms": 24893.704666,
+        "sigkill_sent": false,
+        "sigkill_effective": false
+      },
+      "evidence": {},
+      "notes": [
+        "Budget is terminationGracePeriod (30s) minus preStop (5s). The hook is spent from the same window."
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "duration_ms": 298.592,
+      "startup_duration_ms": 14.708458,
+      "shutdown_duration_ms": 106.295334,
+      "readiness_drop_delay_ms": 20.869584,
+      "readiness_drop_mode": "unreachable",
+      "exit_code": 0,
+      "sigkill_sent": false,
+      "sigkill_effective": false,
+      "contracts": {
+        "SP001": "PASS",
+        "SP003": "PASS",
+        "SP005": "PASS",
+        "SP006": "PASS"
+      }
+    }
+  ],
+  "shutdown_duration_ms_spread": {
+    "median": 106.295334,
+    "min": 106.295334,
+    "max": 106.295334
+  },
+  "startup_duration_ms_spread": {
+    "median": 14.708458,
+    "min": 14.708458,
+    "max": 14.708458
+  }
+}

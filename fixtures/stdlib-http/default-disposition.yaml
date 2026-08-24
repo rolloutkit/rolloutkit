@@ -1,0 +1,35 @@
+# The same application behind a signal-forwarding wrapper.
+#
+# The shell keeps PID 1 and installs a SIGTERM trap, so the kernel delivers the
+# signal instead of discarding it. The wrapper relays it to the application,
+# which is an ordinary child process where a default disposition still means
+# death — it dies of SIGTERM and the wrapper reports the 143 as its own.
+#
+# This is the only honest route to exit 143 in a container, and it is why SP003
+# treats 143 as a WARN rather than a FAIL: the code cannot tell this apart from
+# an application that re-raises SIGTERM after cleaning up properly.
+version: 1
+
+target:
+  image: pfk-fixture-wrapper
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

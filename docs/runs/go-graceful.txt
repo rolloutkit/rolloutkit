@@ -1,0 +1,34 @@
+
+preflightkit 0.1.0.dev0   run pfk_CVF6B7CIYE
+Target: pfk-go-graceful
+Profile: kubernetes, grace 30s, preStop sleep 5s, drain prestop -> shutdown
+budget 25s
+
+STARTUP
+  TCP :8000 open                              0ms
+        via a port proxy (Docker Desktop) - this is not proof the application
+was listening
+  GET /ready -> 200                           15ms
+
+BASELINE (before the signal)
+  GET /work x25                               25/25 ok -> 200
+  request duration p50 / p90                  55ms / 55ms
+  sigterm_after (derived from p50)            28ms
+
+SHUTDOWN TIMELINE
+  T0  SIGTERM -> PID 1                        +0ms
+  T1  readiness unreachable (no connection)   +20ms
+  T4  process exit (code 0)                   +119ms
+
+CONTRACTS
+  SP001 startup                PASS   ready in 15ms (budget 15s)
+  SP003 signal-handling        PASS   exit 0 after 119ms
+  SP005 inflight-completion    PASS   10/10 in-flight requests completed
+  SP006 shutdown-deadline      PASS   exited in 119ms of 25s
+
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.90 | daemon rtt
+~1.1ms
+  Timestamps come from monotonic_ns; anything observed through Docker is precise
+to about 1.1ms, not to the nanosecond.
+
+Result: all contracts passed

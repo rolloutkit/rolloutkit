@@ -1,0 +1,39 @@
+# The experiment that measured nothing. /ready answers in milliseconds and the
+# signal is held back four seconds, so every request is long finished by T0.
+# SP005 must ERROR here rather than report a triumphant 10/10 — a green verdict
+# over an empty window is the worst thing this tool could produce.
+version: 1
+
+target:
+  image: pfk-fixture-good
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /ready
+      expected_duration: 5s
+    concurrent: 5
+    # Pinned, not derived: derivation would put T0 a few milliseconds in and the
+    # requests would still be running, which is the opposite of what this covers.
+    sigterm_after: 4s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

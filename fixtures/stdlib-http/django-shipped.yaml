@@ -1,0 +1,38 @@
+# Minimal reproduction of the shipped Django container shape from the field:
+# shell-form startup leaves `sh` as PID 1, and the application remains an
+# unsignalled child. The lightweight stdlib server keeps the fixture local; the
+# lifecycle property under test is the same `sh -c ...` signal boundary.
+version: 1
+
+target:
+  image: pfk-fixture-stdlib
+  port: 8000
+  command: ["/bin/sh", "-c", "python -u app.py"]
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 1s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /work
+      expected_duration: 1s
+    concurrent: 20
+    sigterm_after: 50ms
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

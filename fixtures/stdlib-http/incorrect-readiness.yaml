@@ -1,0 +1,15 @@
+version: 1
+
+target:
+  image: pfk-fixture-stdlib
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+    READINESS_FAIL_AFTER_STARTUP: "1"
+
+deployment:
+  termination_grace_period: 30s
+
+contracts:
+  readiness:
+    latency_budget: 500ms

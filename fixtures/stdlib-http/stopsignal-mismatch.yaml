@@ -1,0 +1,30 @@
+# Exits cleanly on SIGTERM, and would still misbehave in a cluster: the image
+# declares STOPSIGNAL SIGQUIT, which Docker honours and Kubernetes ignores. A
+# local `docker stop` test would show nothing wrong here.
+version: 1
+
+target:
+  image: pfk-fixture-stopsignal
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

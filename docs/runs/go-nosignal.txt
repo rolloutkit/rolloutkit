@@ -1,0 +1,47 @@
+
+preflightkit 0.1.0.dev0   run pfk_WMP2NGZZFM
+Target: pfk-go-nosignal
+Profile: kubernetes, grace 30s, preStop sleep 5s, drain prestop -> shutdown
+budget 25s
+
+STARTUP
+  TCP :8000 open                              0ms
+        via a port proxy (Docker Desktop) - this is not proof the application
+was listening
+  GET /ready -> 200                           14ms
+
+BASELINE (before the signal)
+  GET /work x25                               25/25 ok -> 200
+  request duration p50 / p90                  57ms / 57ms
+  sigterm_after (derived from p50)            29ms
+
+SHUTDOWN TIMELINE
+  T0  SIGTERM -> PID 1                        +0ms
+      request destroyed #4 no response        +7ms
+      request destroyed #10 no response       +7ms
+      request destroyed #9 no response        +7ms
+      request destroyed #3 no response        +7ms
+      request destroyed #1 no response        +7ms
+      ... and 5 more (--format json lists every one)
+  T1  readiness unreachable (no connection)   +20ms
+  T4  process exit (code 2)                   +89ms
+
+CONTRACTS
+  SP001 startup                PASS   ready in 14ms (budget 15s)
+  SP003 signal-handling        PASS   exit 2 after 88ms
+  SP005 inflight-completion    FAIL   0/10 completed, 10 destroyed
+        request #1 reset_before_response during awaiting_response +7ms
+        request #2 reset_before_response during awaiting_response +7ms
+        request #3 reset_before_response during awaiting_response +7ms
+        request #4 reset_before_response during awaiting_response +7ms
+        request #5 reset_before_response during awaiting_response +7ms
+        ... and 5 more destroyed requests (--format json lists every one)
+  SP006 shutdown-deadline      PASS   exited in 88ms of 25s
+
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.90 | daemon rtt
+~1.1ms
+  Timestamps come from monotonic_ns; anything observed through Docker is precise
+to about 1.1ms, not to the nanosecond.
+
+Result: 1 FAIL
+report-only: exit 0. Use --fail-on error to block CI.

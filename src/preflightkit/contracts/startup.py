@@ -14,7 +14,6 @@ class StartupContract:
     PRECONDITIONS = ()
 
     BRANCHES = {
-        "never_ready": Status.ERROR,
         "over_budget": Status.WARN,
         "within_resolution": Status.PASS,
         "within_budget": Status.PASS,
@@ -46,18 +45,7 @@ class StartupContract:
             else []
         )
 
-        if duration is None:
-            return ContractResult(
-                self.id,
-                self.name,
-                Status.ERROR,
-                report.startup_failure or "the target never reached a ready state",
-                branch="never_ready",
-                expected=f"ready within {format_ms(budget)}",
-                actual=actual,
-                evidence={"logs_tail": report.logs_tail[-2000:]},
-                notes=proxy_note,
-            )
+        assert duration is not None, "SP001 is evaluated only after readiness passes"
 
         # Timing thresholds warn rather than fail: CI runners are noisy, and a
         # blocking check with false positives gets removed from the pipeline.

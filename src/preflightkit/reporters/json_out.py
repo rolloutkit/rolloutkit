@@ -127,6 +127,8 @@ def _baseline(report: RunReport) -> dict[str, Any] | None:
         return None
     return {
         **report.baseline.as_dict(),
+        "inflight_target": report.inflight_target,
+        "path": report.inflight_path,
         "sigterm_after_ms": report.sigterm_after_ms,
         "sigterm_after_source": report.sigterm_after_source,
     }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from preflightkit.config.models import Config, Contracts, ReadinessContract, Target
 from preflightkit.contracts.base import Status
 from preflightkit.contracts.readiness import ReadinessStabilityContract
@@ -104,7 +106,6 @@ def test_sp002_stable_readiness_passes() -> None:
     assert (result.status, result.branch) == (Status.PASS, "stable")
 
 
-def test_sp002_missing_baseline_is_an_error() -> None:
-    result = ReadinessStabilityContract().evaluate(_report(None))
-
-    assert (result.status, result.branch) == (Status.ERROR, "not_measured")
+def test_sp002_missing_baseline_is_an_engine_invariant() -> None:
+    with pytest.raises(AssertionError, match="completed readiness baseline"):
+        ReadinessStabilityContract().evaluate(_report(None))

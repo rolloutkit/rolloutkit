@@ -177,12 +177,21 @@ async def perform_request(
     path: str,
     headers: dict[str, str],
     timeout_ms: int,
+    request_sent_event: anyio.Event | None = None,
 ) -> RequestResult:
     """Run one request on its own connection and classify how it ended."""
     result = RequestResult(request_id=request_id, started_ns=now_ns())
     try:
         with anyio.fail_after(timeout_ms / 1000):
-            await _run(result, host, port, method, path, headers)
+            await _run(
+                result,
+                host,
+                port,
+                method,
+                path,
+                headers,
+                request_sent_event=request_sent_event,
+            )
     except TimeoutError:
         # Only if the deadline actually beat the response — a request that landed
         # just as the scope expired stays completed.
@@ -201,6 +210,8 @@ async def _run(
     method: str,
     path: str,
     headers: dict[str, str],
+    *,
+    request_sent_event: anyio.Event | None = None,
 ) -> None:
     try:
         stream = await anyio.connect_tcp(host, port)
@@ -219,7 +230,16 @@ async def _run(
 
     result.connected_ns = now_ns()
     async with stream:
-        await _exchange(stream, result, host, port, method, path, headers)
+        await _exchange(
+            stream,
+            result,
+            host,
+            port,
+            method,
+            path,
+            headers,
+            request_sent_event=request_sent_event,
+        )
 
 
 async def verify_keep_alive(
@@ -258,6 +278,8 @@ async def _exchange(
     method: str,
     path: str,
     headers: dict[str, str],
+    *,
+    request_sent_event: anyio.Event | None = None,
 ) -> None:
     # No Connection header is sent: we want to observe the server's default
     # keep-alive behavior, not force its hand.
@@ -275,6 +297,8 @@ async def _exchange(
         return
     result.request_sent_ns = now_ns()
     result.phase = RequestPhase.AWAITING_RESPONSE
+    if request_sent_event is not None:
+        request_sent_event.set()
 
     reader = _Reader(stream, result)
     try:

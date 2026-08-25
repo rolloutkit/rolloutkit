@@ -17,6 +17,7 @@ from preflightkit.runtime.base import (
 from preflightkit.traffic.baseline import Baseline, ReadinessBaseline
 from preflightkit.traffic.client import RequestResult
 from preflightkit.traffic.accept_probe import AcceptAttempt, AcceptOutcome
+from preflightkit.probes.http import READINESS_POLL_INTERVAL_MS
 
 #: Exit codes the kernel produces for a process killed by a signal (128 + signo).
 SIGTERM_EXIT = 143
@@ -71,6 +72,13 @@ class RunReport:
     # Traffic
     baseline: Baseline | None = None
     readiness_baseline: ReadinessBaseline | None = None
+    #: "configured", "readiness_fallback", or "disabled".
+    inflight_target: str | None = None
+    inflight_path: str | None = None
+    inflight_fallback_p50_ms: float | None = None
+    inflight_fallback_jitter_ms: float | None = None
+    inflight_fallback_ratio: float | None = None
+    inflight_measurement_enabled: bool = False
     sigterm_after_ms: int | None = None
     #: "config" when the user set sigterm_after, "baseline" when it was derived.
     sigterm_after_source: str | None = None
@@ -179,9 +187,13 @@ class RunReport:
 
         The container create/start round trip is outside the readiness interval,
         but its run-to-run spread bounds how precisely this harness can compare
-        a startup measurement with a configured budget.
+        a startup measurement with a configured budget. Readiness is sampled,
+        not observed continuously, so one polling interval belongs in the same
+        resolution floor.
         """
-        return self.container_start_overhead_ms
+        if self.container_start_overhead_ms is None:
+            return None
+        return self.container_start_overhead_ms + READINESS_POLL_INTERVAL_MS
 
     @property
     def readiness_drop_observation(self) -> str:

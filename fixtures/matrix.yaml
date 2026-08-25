@@ -35,6 +35,36 @@ images:
     context: drain-window
 
 fixtures:
+  - name: readiness-fallback-fast
+    image: pfk-fixture-good
+    config: good-fastapi-prestop/readiness-fallback-fast.yaml
+    description: >
+      No in-flight path is configured. Fast readiness is below the daemon-jitter
+      separation rule, so SP005 explains the measured p50 and jitter instead of
+      pretending a request window existed.
+    expect:
+      SP005: {status: INCONCLUSIVE, branch: readiness_fallback_below_resolution}
+
+  - name: readiness-fallback-slow
+    image: pfk-fixture-good
+    config: good-fastapi-prestop/readiness-fallback-slow.yaml
+    description: >
+      Readiness is deliberately slow enough to separate half its p50 from daemon
+      jitter. SP005 uses readiness as the real in-flight target and publishes a
+      normal completion verdict.
+    expect:
+      SP005: {status: PASS, branch: all_completed}
+
+  - name: startup-within-resolution
+    image: pfk-fixture-good
+    config: good-fastapi-prestop/startup-within-resolution.yaml
+    desktop_only: true
+    description: >
+      Docker Desktop startup overhead is wider than the small nominal readiness
+      budget overrun, so SP001 records a pass inside measured resolution.
+    expect:
+      SP001: {status: PASS, branch: within_resolution}
+
   - name: good-fastapi-prestop
     image: pfk-fixture-good
     config: good-fastapi-prestop/preflightkit.yaml
@@ -100,6 +130,26 @@ fixtures:
       SP005: {status: INCONCLUSIVE, branch: shutdown_never_started}
       SP006: {status: FAIL, branch: past_deadline}
 
+  - name: reacts-but-killed
+    image: pfk-fixture-ignores
+    config: ignores-sigterm/reacts-but-killed.yaml
+    description: >
+      Readiness drops after SIGTERM, proving the process reacted, but its handler
+      never exits. SIGKILL is therefore the actual end of a started shutdown.
+    expect:
+      SP003: {status: FAIL, branch: killed}
+
+  - name: in-app-shutdown-never-started
+    image: pfk-fixture-ignores
+    config: ignores-sigterm/in-app-shutdown-never-started.yaml
+    description: >
+      An in-app profile is declared but the process shows no readiness, accept,
+      or voluntary-exit reaction after SIGTERM.
+    expect:
+      SP003: {status: FAIL, branch: shutdown_not_started}
+      SP004: {status: INCONCLUSIVE, branch: shutdown_never_started}
+      SP006: {status: FAIL, branch: past_deadline}
+
   - name: slow-shutdown
     image: pfk-fixture-ignores
     config: ignores-sigterm/slow-shutdown.yaml
@@ -110,7 +160,7 @@ fixtures:
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: WARN, branch: thin_margin}
 
   - name: pid1-discards-sigterm
@@ -126,7 +176,7 @@ fixtures:
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: FAIL, branch: signal_discarded}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: FAIL, branch: past_deadline}
 
   - name: default-disposition
@@ -142,7 +192,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP002: {status: PASS, branch: stable}
       SP003: {status: PASS, branch: shutdown_observed}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: go-runtime-exit-2
@@ -198,7 +248,7 @@ fixtures:
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: flapping-readiness
@@ -210,7 +260,7 @@ fixtures:
       one lucky 200 stand for the endpoint.
     expect:
       SP002: {status: FAIL, branch: flapping}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
 
   - name: incorrect-readiness
     image: pfk-fixture-stdlib
@@ -220,7 +270,7 @@ fixtures:
       baseline. This is consistently wrong rather than flapping.
     expect:
       SP002: {status: FAIL, branch: incorrect}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
 
   - name: identical-readiness-health
     image: pfk-fixture-stdlib
@@ -230,7 +280,7 @@ fixtures:
       readiness appears to carry no distinct routing signal.
     expect:
       SP002: {status: WARN, branch: same_as_health}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
 
   - name: slow-readiness
     image: pfk-fixture-stdlib
@@ -240,7 +290,7 @@ fixtures:
       over the declared budget. Timing noise is a warning, never a failure.
     expect:
       SP002: {status: WARN, branch: latency_over_budget}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
 
   - name: closes-listener-immediately-in-app
     image: pfk-fixture-drain-window
@@ -253,8 +303,18 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: FAIL, branch: in_app_listener_closed_early}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
+
+  - name: docker-desktop-port-proxy
+    image: pfk-fixture-drain-window
+    config: drain-window/immediate-in-app.yaml
+    desktop_only: true
+    description: >
+      Docker Desktop publishes the target through a userspace proxy, so in-app
+      listener timing cannot describe the application directly.
+    expect:
+      SP004: {status: INCONCLUSIVE, branch: port_proxy_likely}
 
   - name: closes-listener-immediately-prestop
     image: pfk-fixture-drain-window
@@ -267,7 +327,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: PASS, branch: prestop_not_applicable}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: drains-in-app
@@ -281,7 +341,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: PASS, branch: in_app_covered}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: drains-in-app-thin-margin
@@ -295,8 +355,18 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: WARN, branch: in_app_thin_margin}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
+
+  - name: in-app-readiness-never-changes
+    image: pfk-fixture-drain-window
+    config: drain-window/readiness-never.yaml
+    linux_only: true
+    description: >
+      The listener covers the declared in-app window, but readiness remains 200
+      throughout shutdown, so external routers never see a drain signal.
+    expect:
+      SP004: {status: WARN, branch: in_app_readiness_never}
 
   - name: no-drain-declared
     image: pfk-fixture-drain-window
@@ -309,7 +379,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: WARN, branch: none_uncovered}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-then-reset-in-app
@@ -323,7 +393,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: FAIL, branch: accept_then_reset}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-then-reset-prestop
@@ -338,7 +408,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: PASS, branch: prestop_not_applicable}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-then-reset-none
@@ -352,7 +422,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: FAIL, branch: accept_then_reset}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
   - name: prestop-near-deadline
@@ -366,7 +436,7 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: PASS, branch: prestop_not_applicable}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: WARN, branch: thin_margin}
 
   - name: in-app-window-below-probe-resolution
@@ -380,66 +450,16 @@ fixtures:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: INCONCLUSIVE, branch: in_app_window_below_probe_resolution}
-      SP005: {status: SKIP, branch: not_configured}
+      SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
-# Timing branches whose inputs are host-dependent are held by deterministic unit
-# fixtures. The named test must exist; `tests/test_coverage.py` checks it.
-unit_covered:
-  - contract: SP001
-    branch: within_resolution
-    test: tests/test_contracts.py::test_sp001_ignores_budget_overrun_inside_startup_resolution
-  - contract: SP002
-    branch: not_measured
-    test: tests/test_readiness.py::test_sp002_missing_baseline_is_an_error
-  - contract: SP004
-    branch: shutdown_never_started
-    test: tests/test_drain.py::test_sp004_shutdown_precondition_is_inconclusive
-  - contract: SP004
-    branch: port_proxy_likely
-    test: tests/test_drain.py::test_sp004_proxy_precondition_is_inconclusive
-  - contract: SP004
-    branch: budget_below_teardown_floor
-    test: tests/test_drain.py::test_sp004_budget_precondition_is_inconclusive
-  - contract: SP004
-    branch: in_app_readiness_never
-    test: tests/test_drain.py::test_in_app_readiness_never_changed_warns
-  - contract: SP003
-    branch: killed
-    test: tests/test_contracts.py::test_sigkill_effective_fails_after_an_observed_reaction
-  - contract: SP003
-    branch: past_deadline
-    test: tests/test_contracts.py::test_signal_reaction_reported_past_budget_fails
-  - contract: SP006
-    branch: budget_below_teardown_floor
-    test: tests/test_preconditions.py::test_budget_inside_measured_teardown_spread_blocks_sp006
-
-# Branches that exist in the code and cannot be reached by a fixture. Each needs
-# a reason, and the reason has to say what stops it — "hard to build" is not one.
-# If a reason ever stops being true, the branch belongs above instead.
-uncovered:
-  - contract: SP001
-    branch: never_ready
-    reason: >
-      A container that never reaches readiness raises StartupFailure, which the
-      runner turns into an infrastructure error and the CLI reports as exit 3.
-      The experiment ends before any contract is evaluated, so SP001 is never
-      asked. The branch stays as a guard against a future path that reaches
-      evaluation with no readiness timestamp.
-
-  - contract: SP003
-    branch: never_exited
-    reason: >
-      Requires the daemon to report no exit code at all. preflightkit sends
-      SIGKILL at the end of the budget and SIGKILL cannot be caught, so the
-      kernel always produces a status. Reaching this would mean the daemon
-      itself stopped answering, which is an infrastructure failure, not a
-      verdict.
-
-  - contract: SP006
-    branch: never_exited
-    reason: >
-      Same as SP003.never_exited — no exit code means the daemon stopped
-      answering. Kept separate from past_deadline on purpose: "we never found out
-      when it stopped" and "it stopped too late" are different findings, and
-      collapsing them is what produced the defect this matrix now guards.
+  - name: shutdown-budget-below-host-resolution
+    image: pfk-fixture-drain-window
+    config: drain-window/budget-below-resolution.yaml
+    description: >
+      A one-millisecond shutdown budget is below the measured Docker teardown
+      floor on every supported runtime, so timing contracts stay inconclusive.
+    expect:
+      SP003: {status: FAIL, branch: shutdown_not_started}
+      SP004: {status: INCONCLUSIVE, branch: budget_below_teardown_floor}
+      SP006: {status: INCONCLUSIVE, branch: budget_below_teardown_floor}

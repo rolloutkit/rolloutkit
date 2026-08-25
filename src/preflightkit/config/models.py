@@ -48,7 +48,7 @@ class Target(Strict):
     image: str
     port: int = Field(ge=1, le=65535)
     env: dict[str, str] = Field(default_factory=dict)
-    env_file: Path | None = None
+    env_file: Path | list[Path] | None = None
     command: list[str] | None = None
 
 
@@ -57,7 +57,7 @@ class Service(Strict):
 
     image: str
     env: dict[str, str] = Field(default_factory=dict)
-    env_file: Path | None = None
+    env_file: Path | list[Path] | None = None
     command: list[str] | None = None
 
 
@@ -132,14 +132,15 @@ class ReadinessContract(Strict):
 
 class InflightRequest(Strict):
     method: str = "GET"
-    path: str
+    #: None means use the readiness endpoint as the zero-config fallback.
+    path: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
     expected_duration: Duration = 5_000
 
 
 class InflightContract(Strict):
     mode: InflightMode = InflightMode.LONG_REQUESTS
-    request: InflightRequest
+    request: InflightRequest = InflightRequest()
     concurrent: int = Field(default=10, ge=1, le=200)
     #: When unset, derived from the baseline burst: half the measured p50. Left
     #: as a guess it is the single hardest number in the config to get right —
@@ -164,7 +165,8 @@ class InflightContract(Strict):
 class Contracts(Strict):
     startup: StartupContract = StartupContract()
     readiness: ReadinessContract = ReadinessContract()
-    inflight: InflightContract | None = None
+    #: Omitted means readiness fallback. Explicit YAML null disables SP005.
+    inflight: InflightContract | None = InflightContract()
 
 
 class Timeouts(Strict):

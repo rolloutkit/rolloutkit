@@ -238,7 +238,7 @@ def _baseline_block(console: Console, report: RunReport) -> None:
     console.print("[bold]BASELINE[/] [dim](before the signal)[/]")
     statuses = ", ".join(f"{k}" for k in sorted(baseline.statuses)) or "no response"
     console.print(
-        f"  {inflight.request.method} {inflight.request.path} x{baseline.samples}".ljust(
+        f"  {inflight.request.method} {report.inflight_path} x{baseline.samples}".ljust(
             LABEL_WIDTH
         )
         + f"{baseline.succeeded}/{baseline.samples} ok -> {statuses}"
@@ -251,7 +251,7 @@ def _baseline_block(console: Console, report: RunReport) -> None:
     if report.sigterm_after_ms is not None:
         source = (
             "derived from p50"
-            if report.sigterm_after_source == "baseline"
+            if report.sigterm_after_source in ("baseline", "readiness_fallback")
             else "from config"
         )
         console.print(

@@ -20,8 +20,11 @@ Without a deployment profile, preflightkit uses `platform: kubernetes`, a
 30-second grace period, `pre_stop: none`, and `drain: none`. The missing drain
 mechanism makes SP004 `WARN`; this is expected because nothing covers routing
 propagation during shutdown. Without `contracts.inflight`, required contract
-SP005 is `SKIP` and tells you to pass `--inflight-path` or configure the
-contract. SP001, SP002, SP003, and SP006 still produce useful verdicts.
+SP005 uses the readiness endpoint as a fallback. It returns a real verdict when
+the readiness latency is distinguishable from host jitter; otherwise, it
+returns `INCONCLUSIVE` with the measured values and tells you to pass
+`--inflight-path` for a slower endpoint. Set `contracts.inflight: null` only
+when you intend to disable SP005 and receive `SKIP`.
 
 Use `--fail-on error` to gate on failures. Required `SKIP` and `INCONCLUSIVE`
 contracts also block that gate unless you pass `--allow-inconclusive`. CLI
@@ -53,8 +56,7 @@ SHUTDOWN TIMELINE
 Early development — a vertical slice. Working today: SP001 startup, SP002
 readiness stability, SP003 signal handling, SP004 drain window, SP005 in-flight
 completion, and SP006 shutdown deadline, against a Docker runtime. Run-scoped
-dependency services are available. Compose import and the remaining fixtures
-are next.
+dependency services and single-file Compose config import are available.
 
 Contracts whose measurement preconditions do not hold report `INCONCLUSIVE`.
 This is distinct from `SKIP`: `SKIP` means a contract was not configured, while

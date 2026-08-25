@@ -13,6 +13,8 @@ import httpx
 
 from preflightkit.engine.events import now_ns
 
+READINESS_POLL_INTERVAL_MS = 100
+
 
 @dataclass(frozen=True, slots=True)
 class ProbeResult:
@@ -81,7 +83,7 @@ async def wait_for_readiness(
     *,
     expected_status: int,
     budget_ms: int,
-    interval_ms: int = 100,
+    interval_ms: int = READINESS_POLL_INTERVAL_MS,
 ) -> tuple[int | None, ProbeResult | None]:
     """Poll readiness until it passes. Returns (timestamp, last result)."""
     deadline = now_ns() + budget_ms * 1_000_000

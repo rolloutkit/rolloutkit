@@ -84,6 +84,8 @@ def built_images() -> None:
 def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
     if entry.get("linux_only") and platform.system() != "Linux":
         pytest.skip("SP004 listener semantics require a native Linux host")
+    if entry.get("desktop_only") and platform.system() == "Linux":
+        pytest.skip("fixture covers Docker Desktop's published-port proxy")
     command = [
         str(_cli()),
         "test",
@@ -218,7 +220,8 @@ def test_configless_one_line_cli_and_required_skip_gate(
     assert "SP004 drain-window" in report_only.stdout
     assert "WARN" in report_only.stdout
     assert "SP005 inflight-completion" in report_only.stdout
-    assert "primary contract was not measured" in report_only.stdout
+    assert "readiness p50" in report_only.stdout
+    assert "jitter" in report_only.stdout
     assert "--inflight-path" in report_only.stdout
 
     gated = subprocess.run(
@@ -238,6 +241,7 @@ def test_configless_one_line_cli_and_required_skip_gate(
         "drain_strategy": "none",
     }
     assert document["required_unmeasured"]["contracts"][0]["id"] == "SP005"
+    assert document["required_unmeasured"]["contracts"][0]["status"] == "INCONCLUSIVE"
 
     allowed = subprocess.run(
         [
@@ -262,9 +266,7 @@ def test_configless_one_line_cli_and_required_skip_gate(
         case for case in suite.findall("testcase") if case.attrib["name"].startswith("SP005")
     )
     assert sp005.find("skipped") is not None
-    assert "primary contract was not measured" in sp005.find("skipped").attrib[
-        "message"
-    ]
+    assert "readiness p50" in sp005.find("skipped").attrib["message"]
 
     measured = subprocess.run(
         [str(_cli()), "measure", *command[2:]],

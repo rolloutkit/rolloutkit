@@ -46,11 +46,9 @@ class SignalContract:
     PRECONDITIONS = ()
 
     BRANCHES = {
-        "never_exited": Status.FAIL,
         "shutdown_not_started": Status.FAIL,
         "signal_discarded": Status.FAIL,
         "killed": Status.FAIL,
-        "past_deadline": Status.FAIL,
         "shutdown_observed": Status.PASS,
     }
 
@@ -76,12 +74,7 @@ class SignalContract:
                 facts={"shutdown_started": shutdown_started},
             )
 
-        if report.exit_ns is None:
-            return result(
-                Status.FAIL,
-                "the process never stopped and the daemon reported no exit status",
-                "never_exited",
-            )
+        assert report.exit_ns is not None, "the runner requires a daemon exit status"
 
         duration_ms = report.shutdown_duration_ms
         duration = format_ms(int(duration_ms or 0))
@@ -114,19 +107,6 @@ class SignalContract:
                     "connection still open is severed, whatever it was doing."
                 ]
                 + _handler_note(report),
-            )
-
-        budget = report.config.deployment.shutdown_budget_ms
-        if duration_ms is None or duration_ms > budget:
-            return result(
-                Status.FAIL,
-                f"shutdown started but did not finish inside the {format_ms(budget)} "
-                f"budget (observed {duration})",
-                "past_deadline",
-                [
-                    "Exit status is evidence only; the verdict follows the "
-                    "observed reaction and deadline."
-                ],
             )
 
         return result(

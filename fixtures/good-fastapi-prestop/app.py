@@ -18,6 +18,7 @@ app = FastAPI()
 
 @app.get("/ready")
 async def ready() -> dict[str, str]:
+    await asyncio.sleep(float(os.environ.get("READINESS_DELAY_SECONDS", "0")))
     return {"status": "ready"}
 
 

@@ -26,7 +26,6 @@ class ReadinessStabilityContract:
     PRECONDITIONS = ()
 
     BRANCHES = {
-        "not_measured": Status.ERROR,
         "flapping": Status.FAIL,
         "incorrect": Status.FAIL,
         "same_as_health": Status.WARN,
@@ -62,14 +61,10 @@ class ReadinessStabilityContract:
                 evidence=evidence,
             )
 
-        if baseline is None or len(baseline.samples) != READINESS_STABILITY_SAMPLES:
-            return result(
-                Status.ERROR,
-                f"readiness steady-state baseline needs "
-                f"{READINESS_STABILITY_SAMPLES} samples, but measured "
-                f"{actual['n']}",
-                "not_measured",
-            )
+        assert baseline is not None, "SP002 requires the completed readiness baseline"
+        assert len(baseline.samples) == READINESS_STABILITY_SAMPLES, (
+            "the readiness baseline always records exactly ten probe outcomes"
+        )
 
         outcomes = [_outcome(sample) for sample in baseline.samples]
         if len(set(outcomes)) > 1:

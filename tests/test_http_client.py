@@ -15,7 +15,12 @@ import anyio
 import pytest
 from anyio.abc import SocketAttribute, SocketStream
 
-from preflightkit.traffic.client import Outcome, perform_request, verify_keep_alive
+from preflightkit.traffic.client import (
+    Outcome,
+    RequestResult,
+    perform_request,
+    verify_keep_alive,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -167,6 +172,47 @@ async def test_timeout_when_server_never_answers() -> None:
 
     result = await _request(handler, timeout_ms=300)
     assert result.outcome is Outcome.TIMEOUT
+
+
+async def test_request_sent_event_fires_before_the_response_completes() -> None:
+    request_received = anyio.Event()
+    release_response = anyio.Event()
+
+    async def handler(stream: SocketStream) -> None:
+        await stream.receive()
+        request_received.set()
+        await release_response.wait()
+        await stream.send(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")
+
+    async with anyio.create_task_group() as tg:
+        port = await tg.start(_serve, handler)
+        request_sent = anyio.Event()
+        result: list[RequestResult] = []
+
+        async def run() -> None:
+            result.append(
+                await perform_request(
+                    request_id=1,
+                    host="127.0.0.1",
+                    port=port,
+                    method="GET",
+                    path="/slow",
+                    headers={},
+                    timeout_ms=3000,
+                    request_sent_event=request_sent,
+                )
+            )
+
+        tg.start_soon(run)
+        await request_sent.wait()
+        await request_received.wait()
+        assert result == []
+        release_response.set()
+        while not result:
+            await anyio.sleep(0)
+        tg.cancel_scope.cancel()
+
+    assert result[0].outcome is Outcome.COMPLETED
 
 
 async def test_connection_close_header_is_recorded() -> None:

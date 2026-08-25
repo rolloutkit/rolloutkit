@@ -28,6 +28,7 @@ from preflightkit.traffic.accept_probe import (
     probe_new_connection,
 )
 from preflightkit.traffic.generator import run_long_requests
+from preflightkit.contracts.inflight import MIN_JITTER_RATIO
 
 READINESS_WATCH_INTERVAL_MS = 20
 
@@ -307,15 +308,30 @@ async def _baseline(
 
     inflight = config.contracts.inflight
     if inflight is None:
-        # Nothing to baseline: with no in-flight contract there is no request
-        # defined, and no `sigterm_after` to derive.
+        report.inflight_target = "disabled"
         return
+
+    fallback = inflight.request.path is None
+    report.inflight_target = "readiness_fallback" if fallback else "configured"
+    report.inflight_path = inflight.request.path or config.probes.readiness.path
+    if fallback:
+        report.inflight_fallback_p50_ms = report.readiness_baseline.p50_ms
+        report.inflight_fallback_jitter_ms = report.measurement_jitter_ms
+        if report.inflight_fallback_p50_ms is not None and report.inflight_fallback_jitter_ms:
+            report.inflight_fallback_ratio = (
+                report.inflight_fallback_p50_ms / report.inflight_fallback_jitter_ms
+            )
+        if (
+            report.inflight_fallback_ratio is None
+            or report.inflight_fallback_ratio < MIN_JITTER_RATIO
+        ):
+            return
 
     baseline = await measure_baseline(
         host=container.host,
         port=container.host_port,
         method=inflight.request.method,
-        path=inflight.request.path,
+        path=report.inflight_path,
         headers=dict(inflight.request.headers),
         timeout_ms=inflight.request.expected_duration + 5000,
     )
@@ -329,9 +345,15 @@ async def _baseline(
         )
     )
 
+    report.inflight_measurement_enabled = True
     if inflight.sigterm_after is not None:
         report.sigterm_after_ms = inflight.sigterm_after
         report.sigterm_after_source = "config"
+    elif fallback:
+        report.sigterm_after_ms = max(
+            1, round((report.inflight_fallback_p50_ms or 0) / 2)
+        )
+        report.sigterm_after_source = "readiness_fallback"
     else:
         report.sigterm_after_ms = baseline.suggested_sigterm_after_ms
         report.sigterm_after_source = "baseline"
@@ -347,6 +369,7 @@ async def _shutdown(
     sigterm_sent = anyio.Event()
     exited = anyio.Event()
     accept_probe_armed = anyio.Event()
+    inflight_request_armed = anyio.Event()
     stop_accept_probe = anyio.Event()
     report.accept_probe_interval_ms = ACCEPT_PROBE_INTERVAL_MS
     report.accept_refused_streak_target = TERMINAL_REFUSED_STREAK
@@ -358,19 +381,28 @@ async def _shutdown(
         # Armed before the signal: `wait` blocks on the daemon, so the response
         # lands as soon as the container dies rather than after our next poll.
         code = await runtime.wait(container, timeout_ms=hard_wait_ms + 2000)
-        if code is not None:
-            report.exit_ns = now_ns()
-            report.exit_code = code
-            report.bus.record(
-                event(Kind.PROCESS_EXITED, timestamp_ns=report.exit_ns, exit_code=code)
+        if code is None:
+            raise DockerError(
+                "Docker did not report container exit after SIGKILL; the runtime "
+                "is no longer observable"
             )
+        report.exit_ns = now_ns()
+        report.exit_code = code
+        report.bus.record(
+            event(Kind.PROCESS_EXITED, timestamp_ns=report.exit_ns, exit_code=code)
+        )
         exited.set()
 
     async def signal_sender() -> None:
         # SP004's stream must exist on both sides of T0. Do not let a very short
         # sigterm_after race the first steady-state connection attempt.
         await accept_probe_armed.wait()
-        if inflight is not None and report.sigterm_after_ms:
+        if report.inflight_measurement_enabled:
+            # T0 must follow a request that has actually crossed the socket.
+            # Merely scheduling the traffic tasks can otherwise make SP005
+            # report `nothing_in_flight` on a perfectly measurable endpoint.
+            await inflight_request_armed.wait()
+        if report.inflight_measurement_enabled and report.sigterm_after_ms:
             await anyio.sleep(report.sigterm_after_ms / 1000)
         report.sigterm_ns = now_ns()
         # In a preStop rollout, routing removal owns the interval before T0.
@@ -392,14 +424,18 @@ async def _shutdown(
         try:
             while not exited.is_set() and not stop_accept_probe.is_set():
                 cycle_started_ns = now_ns()
+                # The pre-T0 sample is armed once its fresh connection attempt
+                # starts. Waiting for the readiness response would add endpoint
+                # latency to the requested in-flight window and can let every
+                # deliberately slow request finish before SIGTERM.
+                if not accept_probe_armed.is_set():
+                    accept_probe_armed.set()
                 attempt = await probe_new_connection(
                     host=container.host,
                     port=container.host_port,
                     path=config.probes.readiness.path,
                 )
                 report.accept_attempts.append(attempt)
-                if not accept_probe_armed.is_set():
-                    accept_probe_armed.set()
 
                 after_t0 = (
                     report.sigterm_ns is not None
@@ -493,7 +529,7 @@ async def _shutdown(
             tg.start_soon(readiness_watcher)
             tg.start_soon(enforcer)
 
-            if inflight is not None:
+            if inflight is not None and report.inflight_measurement_enabled:
                 request_timeout = (
                     inflight.request.expected_duration + budget_ms + 5000
                 )
@@ -502,10 +538,11 @@ async def _shutdown(
                     host=container.host,
                     port=container.host_port,
                     method=inflight.request.method,
-                    path=inflight.request.path,
+                    path=report.inflight_path or config.probes.readiness.path,
                     headers=dict(inflight.request.headers),
                     concurrent=inflight.concurrent,
                     timeout_ms=request_timeout,
+                    request_sent_event=inflight_request_armed,
                 )
             await exited.wait()
 

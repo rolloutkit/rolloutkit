@@ -15,6 +15,7 @@ from preflightkit.config.models import (
 )
 from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.base import Status
+from preflightkit.contracts.drain import DrainWindowContract
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.preconditions import evaluate_contracts
 from preflightkit.evidence.model import RunOutcome, Session
@@ -170,9 +171,12 @@ def test_budget_inside_measured_teardown_spread_blocks_sp006() -> None:
     assert calibration["resolution_threshold_ms"] > 70
 
 
-def test_unconfigured_sp005_is_skip_before_measurement_preconditions() -> None:
+def test_explicitly_disabled_sp005_is_skip_before_measurement_preconditions() -> None:
     report = RunReport(
-        config=Config(target=Target(image="fixture:latest", port=8000))
+        config=Config(
+            target=Target(image="fixture:latest", port=8000),
+            contracts=Contracts(inflight=None),
+        )
     )
     report.container_started_ns = SECOND
     report.readiness_ok_ns = 2 * SECOND
@@ -185,9 +189,31 @@ def test_unconfigured_sp005_is_skip_before_measurement_preconditions() -> None:
 
     result = _by_id(report)["SP005"]
 
-    assert (result.status, result.branch) == (Status.SKIP, "not_configured")
-    assert "primary contract was not measured" in result.summary
+    assert (result.status, result.branch) == (Status.SKIP, "disabled")
+    assert "explicitly disabled" in result.summary
+
+
+def test_readiness_fallback_below_jitter_resolution_is_inconclusive() -> None:
+    report = _finished_report()
+    report.config = Config(target=Target(image="fixture:latest", port=8000))
+    report.inflight_target = "readiness_fallback"
+    report.inflight_path = "/ready"
+    report.inflight_fallback_p50_ms = 8.0
+    report.inflight_fallback_jitter_ms = 1.8
+    report.inflight_fallback_ratio = 8.0 / 1.8
+    report.baseline = None
+    report.requests = []
+
+    result = _by_id(report)["SP005"]
+
+    assert (result.status, result.branch) == (
+        Status.INCONCLUSIVE,
+        "readiness_fallback_below_resolution",
+    )
+    assert "8.0ms" in result.summary
+    assert "1.8ms" in result.summary
     assert "--inflight-path" in result.summary
+    assert result.evidence["precondition"]["inflight_target"] == "readiness_fallback"
 
 
 def test_none_drain_warns_even_when_shutdown_never_started() -> None:
@@ -195,7 +221,7 @@ def test_none_drain_warns_even_when_shutdown_never_started() -> None:
         config=Config(target=Target(image="fixture:latest", port=8000))
     )
 
-    result = _by_id(report)["SP004"]
+    result = evaluate_contracts(report, (DrainWindowContract(),))[0]
 
     assert (result.status, result.branch) == (Status.WARN, "none_uncovered")
 
@@ -233,7 +259,7 @@ def test_required_inconclusive_blocks_gating_unless_explicitly_allowed() -> None
     assert "candidate_status" not in sp005_document["actual"]
     assert sp005_document["evidence"]["unresolved_candidate"]["status"] == "PASS"
     assert document["runs"][0]["container_start_overhead_ms"] == 752.0
-    assert document["runs"][0]["startup_resolution_ms"] == 752.0
+    assert document["runs"][0]["startup_resolution_ms"] == 852.0
     assert [r.id for r in _blocking_results(session, FailOn.ERROR, False)] == [
         "SP005"
     ]
@@ -243,7 +269,10 @@ def test_required_inconclusive_blocks_gating_unless_explicitly_allowed() -> None
 
 def test_required_skip_blocks_gating_unless_explicitly_allowed() -> None:
     report = RunReport(
-        config=Config(target=Target(image="fixture:latest", port=8000))
+        config=Config(
+            target=Target(image="fixture:latest", port=8000),
+            contracts=Contracts(inflight=None),
+        )
     )
     report.container_started_ns = SECOND
     report.readiness_ok_ns = 2 * SECOND

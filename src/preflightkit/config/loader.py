@@ -143,11 +143,14 @@ def load_config(
     if ready_url is not None:
         raw.setdefault("probes", {}).setdefault("readiness", {})["path"] = ready_url
     if inflight_path is not None:
-        request = (
-            raw.setdefault("contracts", {})
-            .setdefault("inflight", {})
-            .setdefault("request", {})
-        )
+        contracts = raw.setdefault("contracts", {})
+        if not isinstance(contracts, dict):
+            raise ConfigError("contracts must be a mapping")
+        if not isinstance(contracts.get("inflight"), dict):
+            contracts["inflight"] = {}
+        request = contracts["inflight"].setdefault("request", {})
+        if not isinstance(request, dict):
+            raise ConfigError("contracts.inflight.request must be a mapping")
         request["path"] = inflight_path
         request.setdefault("expected_duration", "5s")
     if grace is not None:
@@ -183,7 +186,10 @@ def _merge_env_file(section: dict[str, Any], expansion_env: dict[str, str]) -> d
     env_file = section.get("env_file")
     if env_file is None:
         return expansion_env
-    file_env = read_env_file(Path(env_file))
+    paths = env_file if isinstance(env_file, list) else [env_file]
+    file_env: dict[str, str] = {}
+    for item in paths:
+        file_env.update(read_env_file(Path(item)))
     merged = dict(file_env)
     merged.update(section.get("env") or {})
     section["env"] = merged

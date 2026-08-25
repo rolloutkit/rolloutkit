@@ -11,5 +11,6 @@ deployment:
   termination_grace_period: 30s
 
 contracts:
+  inflight: null
   readiness:
     latency_budget: 500ms

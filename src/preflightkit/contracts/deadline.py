@@ -20,7 +20,6 @@ class DeadlineContract:
     PRECONDITIONS = (SHUTDOWN_BUDGET_RESOLVABLE,)
 
     BRANCHES = {
-        "never_exited": Status.FAIL,
         "budget_below_teardown_floor": Status.INCONCLUSIVE,
         "past_deadline": Status.FAIL,
         "thin_margin": Status.WARN,
@@ -46,22 +45,9 @@ class DeadlineContract:
             "The hook is spent from the same window."
         ]
 
-        if duration is None or margin is None:
-            # Only reachable if the daemon never reported an exit at all. In
-            # practice a killed process still exits, and its duration is still
-            # recorded — which is exactly why this must not be the only FAIL path.
-            return ContractResult(
-                self.id,
-                self.name,
-                Status.FAIL,
-                f"no exit was observed within {format_ms(budget)}",
-                branch="never_exited",
-                expected=expected,
-                actual=actual,
-                evidence={"logs_tail": report.logs_tail[-1000:]},
-                notes=notes
-                + ["In Kubernetes this is the point where every open connection is severed."],
-            )
+        assert duration is not None and margin is not None, (
+            "SP006 is evaluated only after the daemon reports container exit"
+        )
 
         # Two ways to blow the deadline, and both have to be caught here. The
         # obvious one is a measured overrun. The other is a process that only

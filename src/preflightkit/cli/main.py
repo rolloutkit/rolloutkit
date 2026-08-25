@@ -14,6 +14,7 @@ from rich.console import Console
 from preflightkit import __version__
 from preflightkit.config.loader import ConfigError, load_config
 from preflightkit.config.models import Config, DrainStrategy
+from preflightkit.config.compose import import_compose, render_import
 from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.contracts.catalog import CATALOG
@@ -296,6 +297,30 @@ def list_contracts() -> None:
         console.print(
             f"{contract.id:<6} {contract.name:<23} {required:<9} {doc.strategies}"
         )
+
+
+@app.command()
+def init(
+    from_compose: Annotated[
+        Path, typer.Option("--from-compose", help="Read one Docker Compose file.")
+    ],
+    service: Annotated[str, typer.Option("--service", help="Service to import.")],
+    output_path: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Generated preflightkit config path."),
+    ] = Path("preflightkit.yaml"),
+) -> None:
+    """Generate configuration from one Compose service; Compose is not run."""
+    if output_path.exists():
+        _config_error(ConfigError(f"refusing to overwrite existing file: {output_path}"))
+    try:
+        imported = import_compose(from_compose, service)
+    except ConfigError as exc:
+        _config_error(exc)
+    output_path.write_text(render_import(imported))
+    for warning in imported.warnings:
+        err_console.print(f"[bold yellow]warning[/] {warning}", soft_wrap=True)
+    console.print(f"generated {output_path} from service {service}; Compose was not run")
 
 
 def _blocking_results(

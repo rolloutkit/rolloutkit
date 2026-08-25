@@ -111,8 +111,10 @@ class DrainWindowContract:
         if strategy is DrainStrategy.NONE:
             return result(
                 Status.WARN,
-                "no drain mechanism is declared; rollout connection errors are "
-                "expected regardless of the application's listener timing",
+                "no drain mechanism covers routing propagation; production "
+                "rollouts can send traffic to a process that is shutting down. "
+                "Add a preStop sleep, or test application-owned draining with "
+                "--drain in_app",
                 "none_uncovered",
             )
 

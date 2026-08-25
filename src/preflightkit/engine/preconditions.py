@@ -10,6 +10,7 @@ from preflightkit.config.models import DrainStrategy
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.lifecycle import TEARDOWN_CALIBRATION_MAX_BUDGET_MS
 from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
+from preflightkit.contracts.inflight import MIN_JITTER_RATIO
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,12 +23,42 @@ class Resolution:
 Resolver = Callable[[RunReport], Resolution]
 
 
-def _inflight_configured(report: RunReport) -> Resolution:
-    configured = report.config.contracts.inflight is not None
+def _inflight_enabled(report: RunReport) -> Resolution:
+    enabled = report.config.contracts.inflight is not None
     return Resolution(
-        configured,
-        "primary contract was not measured; pass --inflight-path or configure "
-        "contracts.inflight",
+        enabled,
+        "SP005 was explicitly disabled by contracts.inflight: null",
+    )
+
+
+def _readiness_fallback_resolvable(report: RunReport) -> Resolution:
+    if report.inflight_target != "readiness_fallback":
+        return Resolution(True)
+    p50 = report.inflight_fallback_p50_ms
+    jitter = report.inflight_fallback_jitter_ms
+    ratio = report.inflight_fallback_ratio
+    evidence = {
+        "inflight_target": report.inflight_target,
+        "readiness_p50_ms": p50,
+        "jitter_ms": jitter,
+        "ratio": ratio,
+        "minimum_ratio": MIN_JITTER_RATIO,
+    }
+    if p50 is None or jitter is None or jitter <= 0 or ratio is None:
+        return Resolution(
+            False,
+            "readiness fallback cannot be resolved because readiness p50 or "
+            "daemon jitter was not measured; point --inflight-path at a slower "
+            "endpoint",
+            evidence,
+        )
+    return Resolution(
+        ratio >= MIN_JITTER_RATIO,
+        f"readiness p50 {p50:.1f}ms, jitter {jitter:.1f}ms, ratio {ratio:.1f}x "
+        f"is below the required {MIN_JITTER_RATIO}x; the in-flight window cannot "
+        "be distinguished from measurement noise — point --inflight-path at a "
+        "slower endpoint",
+        evidence,
     )
 
 
@@ -141,7 +172,8 @@ def _in_app_window_resolvable(report: RunReport) -> Resolution:
         },
     )
 RESOLVERS: dict[str, Resolver] = {
-    "inflight_configured": _inflight_configured,
+    "inflight_enabled": _inflight_enabled,
+    "readiness_fallback_resolvable": _readiness_fallback_resolvable,
     "shutdown_started": _shutdown_started,
     "baseline_steady_state_2xx": _baseline_steady_state_2xx,
     "shutdown_budget_resolvable": _shutdown_budget_resolvable,

@@ -55,6 +55,7 @@ async def run_long_requests(
     headers: dict[str, str],
     concurrent: int,
     timeout_ms: int,
+    request_sent_event: anyio.Event | None = None,
 ) -> list[RequestResult]:
     """Fire N concurrent slow requests and wait for every one of them to settle.
 
@@ -74,6 +75,7 @@ async def run_long_requests(
             path=path,
             headers=headers,
             timeout_ms=timeout_ms,
+            request_sent_event=request_sent_event,
         )
         results[index] = result
         _emit(bus, result)

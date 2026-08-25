@@ -13,7 +13,8 @@ from typing import Any
 
 from preflightkit.contracts.base import (
     BASELINE_STEADY_STATE_2XX,
-    INFLIGHT_CONFIGURED,
+    INFLIGHT_ENABLED,
+    READINESS_FALLBACK_RESOLVABLE,
     SHUTDOWN_STARTED,
     ContractResult,
     Status,
@@ -27,13 +28,15 @@ class InflightContract:
     name = "inflight-completion"
     required = True
     PRECONDITIONS = (
-        INFLIGHT_CONFIGURED,
+        INFLIGHT_ENABLED,
+        READINESS_FALLBACK_RESOLVABLE,
         SHUTDOWN_STARTED,
         BASELINE_STEADY_STATE_2XX,
     )
 
     BRANCHES = {
-        "not_configured": Status.SKIP,
+        "disabled": Status.SKIP,
+        "readiness_fallback_below_resolution": Status.INCONCLUSIVE,
         "shutdown_never_started": Status.INCONCLUSIVE,
         "baseline_not_2xx": Status.INCONCLUSIVE,
         "nothing_in_flight": Status.ERROR,
@@ -43,13 +46,32 @@ class InflightContract:
 
     def evaluate(self, report: RunReport) -> ContractResult:
         assert report.config.contracts.inflight is not None
-        assert report.sigterm_ns is not None
+        if report.sigterm_ns is None:
+            return ContractResult(
+                self.id,
+                self.name,
+                Status.ERROR,
+                "SIGTERM was not sent, so no in-flight window exists",
+                branch="nothing_in_flight",
+                expected="requests still running at the moment of SIGTERM",
+                actual={
+                    "inflight_target": report.inflight_target,
+                    "path": report.inflight_path,
+                    "issued": len(report.requests),
+                    "in_flight_at_sigterm": 0,
+                    "completed": 0,
+                    "reset": 0,
+                },
+                evidence={"window": _window_evidence(report)},
+            )
 
         in_flight = [r for r in report.requests if _was_in_flight(r, report.sigterm_ns)]
         broken = [r for r in in_flight if r.outcome in BROKEN_OUTCOMES]
         completed = [r for r in in_flight if r.outcome is Outcome.COMPLETED]
 
         actual: dict[str, Any] = {
+            "inflight_target": report.inflight_target,
+            "path": report.inflight_path,
             "issued": len(report.requests),
             "in_flight_at_sigterm": len(in_flight),
             "completed": len(completed),
@@ -128,6 +150,11 @@ def _window_evidence(report: RunReport) -> dict[str, Any]:
     if jitter and window is not None:
         ratio = round(window / jitter, 1)
     return {
+        "inflight_target": report.inflight_target,
+        "path": report.inflight_path,
+        "readiness_p50_ms": report.inflight_fallback_p50_ms,
+        "readiness_jitter_ms": report.inflight_fallback_jitter_ms,
+        "readiness_jitter_ratio": report.inflight_fallback_ratio,
         "sigterm_after_ms": window,
         "sigterm_after_source": report.sigterm_after_source,
         "measurement_jitter_ms": None if jitter is None else round(jitter, 3),

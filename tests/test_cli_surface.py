@@ -47,7 +47,8 @@ def test_one_line_configless_defaults(tmp_path: Path, monkeypatch) -> None:
     assert config.deployment.termination_grace_period == 30_000
     assert str(config.deployment.pre_stop.type) == "none"
     assert str(config.deployment.drain.strategy) == "none"
-    assert config.contracts.inflight is None
+    assert config.contracts.inflight is not None
+    assert config.contracts.inflight.request.path is None
 
 
 def test_cli_over_env_over_file_over_default(tmp_path: Path, monkeypatch) -> None:

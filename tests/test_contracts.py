@@ -70,7 +70,7 @@ def test_sp001_reports_container_start_overhead_separately() -> None:
     result = StartupContract().evaluate(report)
 
     assert result.actual["container_start_overhead_ms"] == 752.0
-    assert result.actual["startup_resolution_ms"] == 752.0
+    assert result.actual["startup_resolution_ms"] == 852.0
     assert result.actual["tcp_open_ms"] == 3000.0
 
 
@@ -94,7 +94,7 @@ def test_sp001_ignores_budget_overrun_inside_startup_resolution() -> None:
     result = StartupContract().evaluate(report)
 
     assert (result.status, result.branch) == (Status.PASS, "within_resolution")
-    assert result.actual["startup_resolution_ms"] == 752.0
+    assert result.actual["startup_resolution_ms"] == 852.0
 
 
 def test_sp001_warns_when_overrun_exceeds_startup_resolution() -> None:
@@ -112,7 +112,7 @@ def test_sp001_warns_when_overrun_exceeds_startup_resolution() -> None:
     )
     report.container_started_ns = SECOND
     report.container_start_overhead_ms = 500.0
-    report.readiness_ok_ns = 2_600_000_000
+    report.readiness_ok_ns = 2_700_000_000
 
     result = StartupContract().evaluate(report)
 
@@ -134,7 +134,7 @@ def test_terminal_exposes_startup_resolution() -> None:
     rendered = console.export_text()
 
     assert "startup resolution" in rendered
-    assert "752ms" in rendered
+    assert "852ms" in rendered
 
 
 # --- SP006 -----------------------------------------------------------------
@@ -203,7 +203,6 @@ def test_a_sent_but_ineffective_sigkill_does_not_fail_the_deadline() -> None:
         (2, None, Status.PASS, "shutdown_observed"),
         (0, "SIGQUIT", Status.PASS, "shutdown_observed"),
         (0, None, Status.PASS, "shutdown_observed"),
-        (None, None, Status.FAIL, "never_exited"),
     ],
 )
 def test_signal_branches(
@@ -246,11 +245,11 @@ def test_sigkill_effective_fails_after_an_observed_reaction() -> None:
     assert (result.status, result.branch) == (Status.FAIL, "killed")
 
 
-def test_signal_reaction_reported_past_budget_fails() -> None:
+def test_signal_contract_leaves_deadline_judgment_to_sp006() -> None:
     result = SignalContract().evaluate(
         _report(budget="1s", exit_code=0, shutdown_ms=1500)
     )
-    assert (result.status, result.branch) == (Status.FAIL, "past_deadline")
+    assert (result.status, result.branch) == (Status.PASS, "shutdown_observed")
 
 
 def test_a_discarded_signal_is_told_apart_from_a_missed_deadline() -> None:

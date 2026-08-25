@@ -19,12 +19,17 @@ import signal
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 SHUTDOWN_DELAY_MS = int(os.environ.get("SHUTDOWN_DELAY_MS", "0"))
+READINESS_DROPS_ON_SIGTERM = os.environ.get("READINESS_DROPS_ON_SIGTERM") == "1"
+draining = False
 
 
 def _on_sigterm(signum: int, frame: object) -> None:
+    global draining
+    if READINESS_DROPS_ON_SIGTERM:
+        draining = True
     if SHUTDOWN_DELAY_MS <= 0:
         return  # Signal caught and deliberately ignored.
     # Blocking on purpose: a real service doing synchronous cleanup on the main
@@ -45,7 +50,10 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/ready")
-async def ready() -> dict[str, str]:
+async def ready(response: Response) -> dict[str, str]:
+    if draining:
+        response.status_code = 503
+        return {"status": "draining"}
     return {"status": "ready"}
 
 

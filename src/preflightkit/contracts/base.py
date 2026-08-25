@@ -68,8 +68,13 @@ class Precondition:
     unmet_status: Status = Status.INCONCLUSIVE
 
 
-INFLIGHT_CONFIGURED = Precondition(
-    "inflight_configured", "not_configured", unmet_status=Status.SKIP
+INFLIGHT_ENABLED = Precondition(
+    "inflight_enabled", "disabled", unmet_status=Status.SKIP
+)
+READINESS_FALLBACK_RESOLVABLE = Precondition(
+    "readiness_fallback_resolvable",
+    "readiness_fallback_below_resolution",
+    unmet_status=Status.INCONCLUSIVE,
 )
 SHUTDOWN_STARTED = Precondition("shutdown_started", "shutdown_never_started")
 BASELINE_STEADY_STATE_2XX = Precondition(

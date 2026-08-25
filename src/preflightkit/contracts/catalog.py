@@ -105,17 +105,18 @@ CATALOG: dict[str, ContractDoc] = {
         "SP005",
         "Whether every request already in flight at SIGTERM completes without reset or truncation.",
         (
-            "contracts.inflight is configured (or --inflight-path is passed).",
+            "SP005 is not explicitly disabled with contracts.inflight: null.",
+            "Readiness fallback is at least 10x slower than daemon jitter, or --inflight-path is passed.",
             "Shutdown starts.",
             "The steady-state request baseline is 2xx.",
         ),
         (
             ("PASS", "Every request in flight at SIGTERM completes."),
             ("FAIL", "One or more in-flight requests are destroyed."),
-            ("SKIP", "No in-flight request contract is configured."),
+            ("SKIP", "The user explicitly sets contracts.inflight to null."),
             (
                 "INCONCLUSIVE",
-                "Shutdown or the baseline cannot establish a valid measurement window.",
+                "Readiness is too fast relative to jitter, or shutdown/baseline cannot establish a valid window.",
             ),
             (
                 "ERROR",

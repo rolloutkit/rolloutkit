@@ -45,17 +45,6 @@ def _covered() -> set[tuple[str, str]]:
     }
 
 
-def _documented() -> set[tuple[str, str]]:
-    return {(item["contract"], item["branch"]) for item in _matrix()["uncovered"]}
-
-
-def _unit_covered() -> set[tuple[str, str]]:
-    return {
-        (item["contract"], item["branch"])
-        for item in _matrix().get("unit_covered", [])
-    }
-
-
 def test_every_contract_declares_its_branches() -> None:
     for contract in ALL_CONTRACTS:
         assert isinstance(contract.required, bool), (
@@ -75,49 +64,21 @@ def test_every_precondition_declares_its_engine_branch() -> None:
             )
 
 
-def test_every_branch_is_covered_or_documented() -> None:
-    """The rule itself: no verdict branch goes untested and unexplained."""
+def test_every_branch_is_covered_by_a_runtime_fixture() -> None:
+    """No unit-only or prose exception can stand in for a runtime branch."""
     declared = set(_declared())
-    accounted = _covered() | _unit_covered() | _documented()
-    missing = declared - accounted
+    missing = declared - _covered()
     assert not missing, (
-        "these verdict branches are neither covered by a fixture nor listed "
-        f"under `uncovered` with a reason: {sorted(missing)}"
+        "these verdict branches have no runtime fixture: "
+        + ", ".join(f"{contract}.{branch}" for contract, branch in sorted(missing))
     )
 
 
 def test_the_matrix_names_only_real_branches() -> None:
     """A typo in the matrix must fail loudly, not silently cover nothing."""
     declared = set(_declared())
-    unknown = (_covered() | _unit_covered() | _documented()) - declared
+    unknown = _covered() - declared
     assert not unknown, f"matrix names branches no contract declares: {sorted(unknown)}"
-
-
-def test_a_covered_branch_is_not_also_excused() -> None:
-    """Otherwise a stale excuse survives the fixture that made it obsolete."""
-    both = _covered() & _documented()
-    assert not both, f"listed as unreachable but covered by a fixture: {sorted(both)}"
-
-
-def test_every_excuse_gives_a_reason() -> None:
-    for item in _matrix()["uncovered"]:
-        reason = (item.get("reason") or "").strip()
-        assert len(reason) > 40, (
-            f"{item['contract']}.{item['branch']} needs a reason saying what "
-            "makes the branch unreachable"
-        )
-
-
-def test_every_unit_covered_branch_names_an_existing_test() -> None:
-    root = MATRIX.parent.parent
-    for item in _matrix().get("unit_covered", []):
-        path_text, separator, test_name = item["test"].partition("::")
-        assert separator and test_name.startswith("test_")
-        path = root / path_text
-        assert path.is_file(), f"unit coverage file does not exist: {path_text}"
-        assert f"def {test_name}(" in path.read_text(), (
-            f"unit coverage test does not exist: {item['test']}"
-        )
 
 
 @pytest.mark.parametrize(

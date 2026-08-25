@@ -2,12 +2,12 @@ version: 1
 target:
   image: pfk-fixture-drain-window
   port: 8000
-  env: {DRAIN_SECONDS: "1.8", EXIT_SECONDS: "2.0"}
+  env: {DRAIN_SECONDS: "0", EXIT_SECONDS: "0.2"}
 deployment:
-  termination_grace_period: 30s
-  drain: {strategy: in_app, in_app_window: 1200ms}
+  termination_grace_period: 1ms
+  drain: {strategy: none}
 probes:
   readiness: {path: /ready, expected_status: 200}
 contracts:
-  inflight: null
   startup: {budget: 15s}
+  inflight: null

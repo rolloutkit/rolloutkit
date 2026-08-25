@@ -327,6 +327,21 @@ async def _calibration_job(payload: dict[str, Any]) -> None:
     port = int(payload["port"])
     t0_unix_ns = int(payload["t0_unix_ns"])
     attempts: list[AcceptAttempt] = []
+
+    # Docker returning from ``start`` does not mean the auxiliary Python HTTP
+    # server has bound its socket yet.  Arming the host-side SIGKILL before one
+    # successful bridge connection made a slow Linux runner report a false
+    # zero-millisecond floor: every post-T0 attempt was already refused.  Prove
+    # the listener is reachable from this namespace before announcing that the
+    # calibration is armed.
+    ready_deadline = time.monotonic() + 5
+    while True:
+        ready = await probe_new_connection(host=host, port=port, path="/")
+        if ready.connected_ns is not None:
+            break
+        if time.monotonic() >= ready_deadline:
+            raise TimeoutError("calibration listener did not become reachable")
+        await anyio.sleep(0.01)
     STATE.calibration_armed.set()
     await anyio.to_thread.run_sync(_wait_until_unix_ns, t0_unix_ns)
     t0_ns = time.monotonic_ns()

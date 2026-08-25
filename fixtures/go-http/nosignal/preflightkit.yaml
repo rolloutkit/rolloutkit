@@ -29,11 +29,12 @@ contracts:
     request:
       method: GET
       path: /work
-      expected_duration: 50ms
+      expected_duration: 1s
     concurrent: 10
-    # Left unset: derived from the measured baseline p50. At a 50ms endpoint
-    # this is the only way to place the signal — the window is far too narrow
-    # to guess at, and guessing is what the baseline exists to replace.
+    # This fixture owns the timing: the signal must land while the fixed 1s
+    # handler is sleeping. A baseline-derived midpoint varies with runner load
+    # and can stop exercising destruction.
+    sigterm_after: 100ms
 
 timeouts:
   overall: 180s

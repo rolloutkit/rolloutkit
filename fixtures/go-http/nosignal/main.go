@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const workDuration = 50 * time.Millisecond
+const workDuration = time.Second
 
 func routes() *http.ServeMux {
 	mux := http.NewServeMux()
@@ -22,8 +22,8 @@ func routes() *http.ServeMux {
 		w.Write([]byte(`{"status":"ready"}`))
 	})
 
-	// Long enough to still be running when the signal arrives, short enough
-	// that a whole run stays cheap.
+	// Long enough to outlast Docker API signal-delivery latency on a loaded
+	// runner, while still keeping the fixture cheap.
 	mux.HandleFunc("/work", func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(workDuration)
 		w.Header().Set("Content-Type", "application/json")

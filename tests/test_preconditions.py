@@ -133,6 +133,11 @@ def test_django_shipped_config_cannot_pass_sp005() -> None:
         "branch": "all_completed",
     }
     assert "keepalive_closed_cleanly" in results["SP005"].evidence
+    assert results["SP005"].evidence["completion"] == {
+        "completed": 1,
+        "in_flight_at_sigterm": 1,
+        "completion_rate": 1.0,
+    }
 
     outcome = RunOutcome(report=report, results=list(results.values()))
     session = Session(run_id="pfk_test", image="fixture:latest", runs=[outcome])
@@ -152,6 +157,24 @@ def test_non_2xx_baseline_only_blocks_sp005() -> None:
     assert results["SP005"].status is Status.INCONCLUSIVE
     assert results["SP005"].branch == "baseline_not_2xx"
     assert results["SP006"].status is Status.PASS
+
+
+def test_sp005_completion_rate_keeps_the_counts_visible() -> None:
+    report = _finished_report()
+    reset = _completed_request()
+    reset.request_id = 2
+    reset.outcome = Outcome.RESET_BEFORE_RESPONSE
+    reset.status = None
+    report.requests.append(reset)
+
+    result = _by_id(report)["SP005"]
+
+    assert result.status is Status.FAIL
+    assert result.evidence["completion"] == {
+        "completed": 1,
+        "in_flight_at_sigterm": 2,
+        "completion_rate": 0.5,
+    }
 
 
 def test_budget_inside_measured_teardown_spread_blocks_sp006() -> None:

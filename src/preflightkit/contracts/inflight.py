@@ -62,7 +62,10 @@ class InflightContract:
                     "completed": 0,
                     "reset": 0,
                 },
-                evidence={"window": _window_evidence(report)},
+                evidence={
+                    "completion": _completion_evidence(0, 0),
+                    "window": _window_evidence(report),
+                },
             )
 
         in_flight = [r for r in report.requests if _was_in_flight(r, report.sigterm_ns)]
@@ -78,6 +81,7 @@ class InflightContract:
             "reset": len(broken),
         }
         evidence: dict[str, Any] = {
+            "completion": _completion_evidence(len(completed), len(in_flight)),
             "broken_requests": [_describe(r, report) for r in broken],
             "keepalive_closed_cleanly": _keepalive_evidence(completed, report),
             "window": _window_evidence(report),
@@ -133,6 +137,16 @@ class InflightContract:
             evidence=evidence,
             notes=notes,
         )
+
+
+def _completion_evidence(completed: int, in_flight: int) -> dict[str, Any]:
+    return {
+        "completed": completed,
+        "in_flight_at_sigterm": in_flight,
+        "completion_rate": (
+            None if in_flight == 0 else round(completed / in_flight, 4)
+        ),
+    }
 
 
 #: How much wider than the measurement noise the in-flight window has to be

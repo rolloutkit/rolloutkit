@@ -10,6 +10,7 @@ from preflightkit.traffic.client import Outcome, RequestResult
 
 ROOT = Path(__file__).resolve().parent.parent
 PROBE_PATH = ROOT / "spikes" / "sidecar-probe" / "probe.py"
+DOCKERFILE = ROOT / "spikes" / "sidecar-probe" / "Dockerfile"
 
 
 def _probe_module():
@@ -54,3 +55,4 @@ def test_spike_imports_traffic_but_not_contract_modules() -> None:
     assert "preflightkit.traffic.accept_probe" in source
     assert "preflightkit.traffic.generator" in source
     assert "preflightkit.contracts" not in source
+    assert "COPY src/preflightkit /opt/preflightkit" not in DOCKERFILE.read_text()

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -49,6 +50,7 @@ def _run(command: list[str], *, capture: bool = False) -> subprocess.CompletedPr
         check=False,
         text=True,
         capture_output=capture,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
     )
     if completed.returncode != 0:
         detail = completed.stderr.strip() if capture else "see command output above"

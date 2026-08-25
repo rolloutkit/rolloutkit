@@ -1003,16 +1003,21 @@ tasks crossed that boundary simultaneously.
 
 ---
 
-## Sidecar probe spike predictions (2026-08-25; base commit: 1265fe4)
+## Sidecar probe spike (2026-08-25; measurement commit: ece4949723f0352182f949c489185c332a83dc4e)
 
-This section records the predictions before any sidecar measurement. The spike
-keeps contract evaluation on the host and changes only where raw traffic and
-Docker timing observations originate.
+This section keeps the pre-measurement predictions and the resulting 36 runs in
+one record. The spike keeps contract evaluation on the host and changes only
+where raw traffic and Docker timing observations originate.
 
 <!-- prettier-ignore -->
 > [!NOTE]
 > This is an experimental measurement spike. It does not define product
 > behavior or move any contract into a sidecar.
+
+### Predictions recorded before measurement
+
+These predictions were committed at `d05b2e8` before the first sidecar container
+started. The ranges below are unchanged from that commit.
 
 The matrix uses the same four fixture configurations in each environment. Each
 row will run three times. `delayed-bind` isolates SP001 TCP timing,
@@ -1040,3 +1045,118 @@ predicted macOS-sidecar median differs from the Linux-sidecar median by at most
 2ms. The predicted teardown floor is 10–60ms on Linux and 35–70ms inside Docker
 Desktop's unpublished bridge. The predicted sidecar startup cost is 150–1200ms
 on Linux and 200–1500ms on macOS.
+
+### Measured environments
+
+The measurement used spike commit
+`ece4949723f0352182f949c489185c332a83dc4e`. Each cell below is the median of
+three independent runs, followed by the observed range. The Linux machine ran
+Linux 6.8.0-134-generic and Docker 29.6.1/amd64. The macOS machine used Docker
+Desktop's Linux VM.
+
+| Probe placement | Jitter | Teardown floor | Probe startup cost |
+|---|---:|---:|---:|
+| Linux host, direct IP | 1.14ms (0.61–2.07) | 237.07ms (201.90–307.39) | 220.77ms (181.33–262.13) |
+| Linux sidecar | 1.48ms (0.97–2.61) | 250.02ms (215.32–431.97) | 1085.39ms (878.38–1905.05) |
+| macOS sidecar | 0.95ms (0.88–1.00) | 50.73ms (47.86–56.35) | 177.76ms (165.37–202.23) |
+
+Probe startup cost is wall time from the host starting the `docker run` command
+to the Python probe process entering its measurement function. It includes
+container create, namespace attachment, and interpreter startup; it excludes
+image build and pull time.
+
+The Linux sidecar jitter was 0.34ms above the Linux-host baseline, a 1.30x
+ratio. The macOS sidecar was 0.54ms below the Linux sidecar. Both differences
+were inside the predicted 2ms band.
+
+The Linux teardown-floor prediction did not hold. During measurement, that host
+reported load averages 4.88 / 3.95 / 2.89 on six CPUs. Its sidecar floor was
+12.94ms above the host floor, but both were 177–199ms above the predicted upper
+bound. The macOS host reported 3.28 / 3.23 / 2.74 on 11 Docker CPUs, and its
+50.73ms sidecar floor stayed inside the predicted 35–70ms band.
+
+### TCP and accept-window measurements
+
+The same target image and environment values were used in all three probe
+placements. TCP timing starts when Docker returns from starting the target. The
+accept window is the last completed handshake relative to sidecar-recorded T0.
+
+| Fixture | Linux host | Linux sidecar | macOS sidecar |
+|---|---:|---:|---:|
+| `delayed-bind`, TCP open | 3602.48ms (3557.49–3643.83) | 3594.44ms (3545.21–3643.22) | 3173.42ms (3160.07–3179.70) |
+| `immediate-in-app`, accept window | 2.29ms (1.48–51.40) | 7.08ms (3.91–57.89) | 0.68ms (0.65–0.88) |
+| `drains-in-app`, accept window | 1836.31ms (1832.81–1846.22) | 1878.05ms (1842.30–1898.54) | 1836.91ms (1832.66–1847.53) |
+
+Linux host and Linux sidecar differed by 8.05ms on delayed bind, 4.79ms on
+immediate close, and 41.74ms on the 1.8s drain. macOS sidecar and Linux sidecar
+differed by 421.02ms on delayed bind, 6.39ms on immediate close, and 41.14ms on
+the 1.8s drain.
+
+The 421.02ms delayed-bind difference repeated on the fast-start fixtures. Linux
+host and Linux sidecar needed 519–759ms to observe the drain-window target's TCP
+listener; macOS sidecar needed 159–170ms. The Linux target-start path therefore
+carried 350–590ms more host scheduling and process-start latency before either
+probe placement measured the listener. That difference was present between
+hosts, not between Linux host and Linux sidecar.
+
+The unchanged SP004 table maps the macOS sidecar immediate-close evidence to
+`FAIL / in_app_listener_closed_early`: all three windows were 0.65–0.88ms
+against a required 1200ms, and no run used a published host port. The 1.8s drain
+covered the same 1200ms requirement in all nine runs. No `drains-in-app` run
+recorded an accepted connection that reset without a response.
+
+### In-flight traffic measurements
+
+The `kills-inflight` fixture issued ten `/slow` requests per run. The same
+product traffic generator executed inside the sidecar image; contract code was
+not imported or evaluated there.
+
+| Probe placement | Three-run completed / in flight | Completion rate | Raw classification |
+|---|---:|---:|---|
+| Linux host, direct IP | 0/10, 0/10, 0/10 | 0.0, 0.0, 0.0 | 10 destroyed in every run |
+| Linux sidecar | 0/10, 0/10, 0/10 | 0.0, 0.0, 0.0 | 10 destroyed in every run |
+| macOS sidecar | 0/10, 0/10, 0/10 | 0.0, 0.0, 0.0 | 10 destroyed in every run |
+
+All three placements retained the same SP005 request population and failure
+classification.
+
+### Prediction comparison
+
+The table compares every pre-recorded row with its three-run measurement. A
+match means the measured value stayed inside the numeric band written before
+the run.
+
+| Environment | Fixture | Measured result | Prediction |
+|---|---|---|---|
+| Linux host | `delayed-bind` | TCP 3557–3644ms | matched |
+| Linux host | `immediate-in-app` | early-close FAIL, 1–51ms | matched |
+| Linux host | `drains-in-app` | covered, 1833–1846ms | matched |
+| Linux host | `kills-inflight` | FAIL, rate 0.0, 10 issued | matched |
+| Linux sidecar | `delayed-bind` | median 8ms from Linux host | matched |
+| Linux sidecar | `immediate-in-app` | same FAIL, median 5ms from host | matched |
+| Linux sidecar | `drains-in-app` | same covered result, median 42ms from host | matched |
+| Linux sidecar | `kills-inflight` | same FAIL and rate 0.0 | matched |
+| macOS sidecar | `delayed-bind` | median 421ms below Linux sidecar | did not match 100ms band |
+| macOS sidecar | `immediate-in-app` | early-close FAIL, 0.65–0.88ms | matched |
+| macOS sidecar | `drains-in-app` | covered, median 41ms from Linux sidecar | matched |
+| macOS sidecar | `kills-inflight` | same FAIL and rate 0.0 | matched |
+
+The aggregate jitter prediction matched in both comparisons. The Linux
+teardown-floor prediction and the Linux sidecar startup upper bound did not:
+the sidecar startup range reached 1905.05ms instead of stopping at 1200ms. The
+macOS floor and startup predictions matched.
+
+### Numeric answer
+
+For SP004 placement, macOS sidecar and Linux were equivalent at the probe's
+50ms resolution: the immediate-close medians differed by 1.61ms from Linux host
+and 6.39ms from Linux sidecar; the drain medians differed by 0.60ms and 41.14ms.
+macOS produced the same early-close FAIL evidence instead of a proxy-driven
+INCONCLUSIVE. SP001 TCP became measurable through the sidecar, while the
+delayed-bind medians remained 421.02ms apart across the two hosts.
+
+Across every measured dimension, the environments were not numerically equal:
+jitter differed by 0.54ms, teardown floor by 199.28ms, delayed-bind TCP by
+421.02ms, and sidecar startup cost by 907.63ms. The sidecar removed the host-port
+proxy difference from TCP and accept-window traffic; it did not remove the
+Docker-host timing differences recorded by the same probe.

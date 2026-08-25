@@ -49,8 +49,19 @@ class Handler(BaseHTTPRequestHandler):
         # model a listener that finishes the connection it just accepted. The
         # RESET_AFTER_SIGTERM path above deliberately keeps the opposite
         # behavior for the universal accept_then_reset failure branch.
-        if draining and drain_elapsed.is_set() and not listener_closing.is_set():
+        if (
+            draining
+            and drain_elapsed.is_set()
+            and self.headers.get("Connection", "").lower() == "close"
+            and not listener_closing.is_set()
+        ):
             listener_closing.set()
+            # The SP004 accept probe identifies itself with Connection: close.
+            # Close the listening socket synchronously after flushing that
+            # response, before the probe can begin its next 50ms cycle. Leaving
+            # this to the cleanup thread creates a scheduler-dependent backlog
+            # handshake which is then correctly classified as accept_then_reset.
+            server.socket.close()
             threading.Thread(target=close_and_exit, daemon=True).start()
 
     def log_message(self, *args: object) -> None:

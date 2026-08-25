@@ -346,8 +346,8 @@ fixtures:
     image: pfk-fixture-drain-window
     config: drain-window/thin-margin.yaml
     description: >
-      The listener covers the declared window but leaves less than twenty
-      percent reserve.
+      The listener covers a ten-second declared window with roughly one second
+      of reserve, safely inside the twenty-percent warning band across runners.
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}

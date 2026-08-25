@@ -2,10 +2,12 @@ version: 1
 target:
   image: pfk-fixture-drain-window
   port: 8000
-  env: {DRAIN_SECONDS: "1.4", EXIT_SECONDS: "1.6"}
+  # Keep the reserve well inside the 20% warning band even when listener-close
+  # observation moves by several hundred milliseconds on a loaded runner.
+  env: {DRAIN_SECONDS: "11", EXIT_SECONDS: "11.5"}
 deployment:
   termination_grace_period: 30s
-  drain: {strategy: in_app, in_app_window: 1300ms}
+  drain: {strategy: in_app, in_app_window: 10s}
 probes:
   readiness: {path: /ready, expected_status: 200}
 contracts:

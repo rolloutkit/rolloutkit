@@ -89,6 +89,16 @@ def begin_shutdown(signum: int, frame: object) -> None:
     global draining, sigterm_at
     draining = True
     sigterm_at = time.monotonic()
+    if DRAIN_SECONDS == 0 and not RESET_AFTER_SIGTERM:
+        # The immediate-close fixture must close before the signal handler
+        # returns. Handing this zero-delay action to a thread leaves one
+        # scheduler-sized backlog window where a new handshake can succeed and
+        # reset, nondeterministically selecting accept_then_reset instead of the
+        # listener_closed_early branch this fixture owns.
+        listener_closing.set()
+        server.socket.close()
+        threading.Thread(target=close_and_exit, daemon=True).start()
+        return
     threading.Thread(target=finish_shutdown, daemon=True).start()
 
 

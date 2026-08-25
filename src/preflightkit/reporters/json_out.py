@@ -9,6 +9,7 @@ from preflightkit.contracts.base import Status
 from preflightkit.engine.context import RunReport
 from preflightkit.evidence.model import RunOutcome, Session
 from preflightkit.evidence.redact import Redactor
+from preflightkit.provenance import preflightkit_commit
 
 SCHEMA_VERSION = "1"
 
@@ -18,6 +19,7 @@ def build(session: Session, version: str) -> dict[str, Any]:
         return {
             "version": SCHEMA_VERSION,
             "tool_version": version,
+            "preflightkit_commit": preflightkit_commit(),
             "run_id": session.run_id,
             "target": {"image": session.image},
             "result": str(Status.ERROR),
@@ -34,6 +36,7 @@ def build(session: Session, version: str) -> dict[str, Any]:
     document = {
         "version": SCHEMA_VERSION,
         "tool_version": version,
+        "preflightkit_commit": preflightkit_commit(),
         "run_id": session.run_id,
         "target": {"image": session.image, "port": config.target.port},
         "profile": {

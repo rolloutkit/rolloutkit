@@ -21,6 +21,7 @@ pfk = "preflightkit.cli.main:app"
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "ruff>=0.15.8",
     "trio>=0.27",
 ]
 

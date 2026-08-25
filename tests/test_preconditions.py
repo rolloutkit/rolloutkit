@@ -238,7 +238,10 @@ def test_connection_close_is_not_applicable_without_steady_state_keepalive() -> 
     assert "steady-state" in evidence["reason"]
 
 
-def test_required_inconclusive_blocks_gating_unless_explicitly_allowed() -> None:
+def test_required_inconclusive_blocks_gating_unless_explicitly_allowed(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PREFLIGHTKIT_COMMIT", "0123456789abcdef")
     report = _finished_report()
     report.container_start_overhead_ms = 752.0
     report.baseline = _baseline(500)
@@ -252,6 +255,7 @@ def test_required_inconclusive_blocks_gating_unless_explicitly_allowed() -> None
     assert "1 required contract did not produce a verdict" in console.export_text()
     assert document["inconclusive"]["count"] == 1
     assert document["required_unmeasured"]["count"] == 1
+    assert document["preflightkit_commit"] == "0123456789abcdef"
     assert document["result"] != "INCONCLUSIVE"
     sp005_document = next(
         contract for contract in document["contracts"] if contract["id"] == "SP005"

@@ -1000,3 +1000,43 @@ records how many requests the harness launched; `in_flight_at_sigterm` records
 only requests that had reached the socket and were still open at T0. Waiting for
 one socket write removes the original race without pretending all concurrent
 tasks crossed that boundary simultaneously.
+
+---
+
+## Sidecar probe spike predictions (2026-08-25; base commit: 1265fe4)
+
+This section records the predictions before any sidecar measurement. The spike
+keeps contract evaluation on the host and changes only where raw traffic and
+Docker timing observations originate.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> This is an experimental measurement spike. It does not define product
+> behavior or move any contract into a sidecar.
+
+The matrix uses the same four fixture configurations in each environment. Each
+row will run three times. `delayed-bind` isolates SP001 TCP timing,
+`immediate-in-app` and `drains-in-app` bound SP004, and `kills-inflight` checks
+that the sidecar preserves SP005 request classification.
+
+| Environment | Probe location | Fixture | Prediction before measurement |
+|---|---|---|---|
+| Linux | host, direct IP | `delayed-bind` | TCP opens 3.0–4.0s after target start; the timestamp is measurable |
+| Linux | host, direct IP | `immediate-in-app` | SP004 candidate is FAIL / early close; accept window -50–100ms |
+| Linux | host, direct IP | `drains-in-app` | SP004 candidate is PASS / covered; accept window 1.75–1.95s |
+| Linux | host, direct IP | `kills-inflight` | SP005 is FAIL; completion rate 0.0–0.2 with 10 issued |
+| Linux | sidecar | `delayed-bind` | TCP opens within 100ms of the Linux host result |
+| Linux | sidecar | `immediate-in-app` | Same FAIL branch as Linux host; window differs by no more than 100ms |
+| Linux | sidecar | `drains-in-app` | Same PASS branch as Linux host; window differs by no more than 100ms |
+| Linux | sidecar | `kills-inflight` | Same FAIL classification and completion-rate band as Linux host |
+| macOS | sidecar | `delayed-bind` | TCP opens within 100ms of Linux sidecar and remains measurable |
+| macOS | sidecar | `immediate-in-app` | FAIL / early close, not proxy-driven INCONCLUSIVE; -50–100ms window |
+| macOS | sidecar | `drains-in-app` | PASS / covered; window differs from Linux sidecar by no more than 100ms |
+| macOS | sidecar | `kills-inflight` | Same FAIL classification and completion-rate band as Linux sidecar |
+
+Across the matrix, the predicted Linux-sidecar median
+`measurement_jitter_ms` differs from the Linux-host median by at most 2ms. The
+predicted macOS-sidecar median differs from the Linux-sidecar median by at most
+2ms. The predicted teardown floor is 10–60ms on Linux and 35–70ms inside Docker
+Desktop's unpublished bridge. The predicted sidecar startup cost is 150–1200ms
+on Linux and 200–1500ms on macOS.

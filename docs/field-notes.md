@@ -1165,3 +1165,104 @@ jitter differed by 0.54ms, teardown floor by 199.28ms, delayed-bind TCP by
 421.02ms, and sidecar startup cost by 907.63ms. The sidecar removed the host-port
 proxy difference from TCP and accept-window traffic; it did not remove the
 Docker-host timing differences recorded by the same probe.
+
+---
+
+## Product sidecar rerun (2026-08-25; preflightkit commit: ee2ab03b8078e7e9442d0f9937b82b2a363a6764)
+
+These are new product runs, not the spike harness. Every row used
+`probe_location: sidecar` with the default `python:3.12-slim` probe image. The
+Linux host ran Linux 6.8.0-134-generic and Docker 29.6.1/amd64. service-b was
+built from source commit `efa24f341b5806915782ff9a360b70480e3bdebf` and used
+the `exec gunicorn` counterfactual. service-a used the same anonymized image
+snapshot and isolated Postgres, Redis, and MinIO dependencies as its prior
+field run.
+
+### Real-image profiles
+
+Each image/profile cell was a fresh, independent three-run prediction. The
+completion fraction is followed by `completion_rate`; it is not inferred from
+configured concurrency.
+
+| Run | SP004 | Accept window | SP005 | Completed / in flight (rate) | Baseline p50 | Jitter |
+|---|---|---:|---|---:|---:|---:|
+| service-a, `in_app`, 1 | FAIL / `in_app_listener_closed_early` | 97.98ms | PASS / `all_completed` | 124/124 (1.000) | 2006.91ms | 1.31ms |
+| service-a, `in_app`, 2 | FAIL / `in_app_listener_closed_early` | 31.96ms | PASS / `all_completed` | 137/137 (1.000) | 1454.47ms | 0.90ms |
+| service-a, `in_app`, 3 | FAIL / `in_app_listener_closed_early` | -595.55ms | PASS / `all_completed` | 7/7 (1.000) | 2255.01ms | 2.14ms |
+| service-a, `prestop`, 1 | PASS / `prestop_not_applicable` | -63.47ms | FAIL / `requests_destroyed` | 161/174 (0.925) | 1745.85ms | 1.42ms |
+| service-a, `prestop`, 2 | PASS / `prestop_not_applicable` | -47.66ms | FAIL / `requests_destroyed` | 88/163 (0.540) | 1947.63ms | 1.07ms |
+| service-a, `prestop`, 3 | PASS / `prestop_not_applicable` | 88.09ms | PASS / `all_completed` | 164/164 (1.000) | 2715.04ms | 1.40ms |
+| service-b + `exec`, `in_app`, 1 | FAIL / `accept_then_reset` | 30111.21ms | FAIL / `requests_destroyed` | 2/100 (0.020) | 697.95ms | 1.19ms |
+| service-b + `exec`, `in_app`, 2 | FAIL / `accept_then_reset` | 305.27ms | FAIL / `requests_destroyed` | 4/100 (0.040) | 408.98ms | 1.34ms |
+| service-b + `exec`, `in_app`, 3 | FAIL / `accept_then_reset` | 241.53ms | FAIL / `requests_destroyed` | 5/96 (0.052) | 592.94ms | 1.14ms |
+| service-b + `exec`, `prestop`, 1 | PASS / `prestop_not_applicable` | -21.07ms | FAIL / `requests_destroyed` | 4/100 (0.040) | 531.71ms | 3.07ms |
+| service-b + `exec`, `prestop`, 2 | PASS / `prestop_not_applicable` | -13.59ms | FAIL / `requests_destroyed` | 3/98 (0.031) | 689.17ms | 2.21ms |
+| service-b + `exec`, `prestop`, 3 | PASS / `prestop_not_applicable` | -0.32ms | FAIL / `requests_destroyed` | 4/100 (0.040) | 415.65ms | 0.99ms |
+
+The service-a SP005 result is profile-sensitive in these runs: `in_app` was
+3/3 PASS, while `prestop` was 1/3 PASS and 2/3 FAIL. service-b remained 6/6
+FAIL across both profiles. The table retains the raw populations because a
+single aggregate would hide that spread.
+
+### Go fixtures
+
+| Fixture | Run | SP003 | SP005 | Completed / in flight (rate) | Jitter |
+|---|---:|---|---|---:|---:|
+| graceful | 1 | PASS / `shutdown_observed` | PASS / `all_completed` | 10/10 (1.000) | 1.52ms |
+| graceful | 2 | PASS / `shutdown_observed` | PASS / `all_completed` | 10/10 (1.000) | 3.76ms |
+| graceful | 3 | PASS / `shutdown_observed` | PASS / `all_completed` | 10/10 (1.000) | 1.75ms |
+| no signal handler | 1 | PASS / `shutdown_observed` | FAIL / `requests_destroyed` | 0/10 (0.000) | 0.87ms |
+| no signal handler | 2 | PASS / `shutdown_observed` | FAIL / `requests_destroyed` | 0/10 (0.000) | 1.08ms |
+| no signal handler | 3 | PASS / `shutdown_observed` | FAIL / `requests_destroyed` | 0/10 (0.000) | 1.91ms |
+
+The no-signal fixture uses a fixed one-second handler and a fixture-owned 100ms
+signal point. A 50ms handler plus a baseline-derived midpoint stopped reaching
+the destruction branch on a loaded Linux runner because Docker API signal
+delivery arrived after the handler completed. The longer handler changes only
+the fixture's reachability margin.
+
+### macOS and Linux accept windows
+
+Both platforms used the same product commit and `probe_location: sidecar`.
+Each cell is the median of three runs followed by the range.
+
+| Fixture | Linux sidecar | macOS sidecar | Verdicts |
+|---|---:|---:|---|
+| `immediate-in-app` | 44.64ms (-1.31–93.82) | 5.76ms (-22.11–7.39) | FAIL in all six runs |
+| `drains-in-app` | 1930.38ms (1862.65–2002.36) | 1858.63ms (1841.84–1868.53) | PASS in all six runs |
+
+The immediate-close medians differed by 38.88ms, inside the 50ms accept-probe
+interval. The drain medians differed by 71.75ms on an approximately 1.9s
+window; their ranges overlapped and every run covered the declared 1200ms
+window. macOS therefore published SP004 FAIL for the immediate-close fixture,
+not INCONCLUSIVE.
+
+### Explicit fallback
+
+On macOS, configuring the deliberately absent image
+`preflightkit-probe-intentionally-missing:never` selected
+`probe_location: host_fallback`. The report retained the exact local-image
+error in `probe_fallback_reason`, set `port_proxy_likely: true`, and published
+SP004 as `INCONCLUSIVE / port_proxy_likely`. This run used the commit in this
+section heading.
+
+### Product fixture matrix
+
+The final matrix ran at preflightkit commit
+`75366ef1cfc850814288aa4afd928fe4b6e9efde`. Native Linux completed with
+`232 passed, 1 skipped`; macOS completed with `233 passed`. The branch coverage
+check reported no uncovered contract branches.
+
+The one Linux skip is deliberately not a sidecar exception. It is the
+`docker-desktop-host-fallback-port-proxy` row, whose configured missing probe
+image forces `host_fallback`; Docker Desktop then supplies the host-port proxy
+that row measures, while native Linux fallback uses the target's direct bridge
+address. All primary-path matrix rows ran through the sidecar on Linux, including
+SP004 and the teardown-floor branches.
+
+Two narrow timing fixtures were widened after the first Linux pass exposed
+runner-dependent branch changes: SP006 thin margin now uses a 25s exit inside a
+30s budget, and SP004 thin margin uses an 11s drain against a 10s requirement.
+The immediate-close fixture also closes its listener synchronously in the
+SIGTERM handler. These changes preserve the named branches while moving their
+boundaries well outside host scheduling jitter.

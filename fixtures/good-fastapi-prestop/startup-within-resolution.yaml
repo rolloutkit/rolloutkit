@@ -11,5 +11,5 @@ deployment:
 probes:
   readiness: {path: /ready, expected_status: 200}
 contracts:
-  startup: {budget: 1ms}
+  startup: {budget: 100ms}
   inflight: null

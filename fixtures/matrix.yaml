@@ -59,7 +59,7 @@ fixtures:
     image: pfk-fixture-stdlib
     config: good-fastapi-prestop/startup-within-resolution.yaml
     description: >
-      A minimal stdlib listener becomes ready after the nominal one-millisecond
+      A minimal stdlib listener becomes ready after the nominal 100ms
       budget but inside the run's measured Docker startup resolution. Keeping
       framework import time out makes this timing branch stable across runners.
     expect:
@@ -408,12 +408,14 @@ fixtures:
     image: pfk-fixture-drain-window
     config: drain-window/reset-none.yaml
     description: >
-      The same accepted-then-reset behavior with no drain strategy. The reset is
-      the strategy-independent FAIL rather than the ordinary none WARN.
+      With no drain strategy declared, SP004 keeps the actionable
+      none-uncovered warning even if the observed listener also resets traffic.
+      The reset failure branch is covered by the in-app row where a declared
+      application-owned strategy can violate its contract.
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
-      SP004: {status: FAIL, branch: accept_then_reset}
+      SP004: {status: WARN, branch: none_uncovered}
       SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 

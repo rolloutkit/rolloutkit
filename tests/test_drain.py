@@ -128,10 +128,14 @@ def test_none_always_warns() -> None:
     assert (result.status, result.branch) == (Status.WARN, "none_uncovered")
 
 
-def test_accept_then_reset_fails_for_in_app_and_none() -> None:
-    for strategy in (DrainStrategy.IN_APP, DrainStrategy.NONE):
-        result = _result(_report(strategy, reset=True))
-        assert (result.status, result.branch) == (Status.FAIL, "accept_then_reset")
+def test_accept_then_reset_fails_for_in_app() -> None:
+    result = _result(_report(DrainStrategy.IN_APP, reset=True))
+    assert (result.status, result.branch) == (Status.FAIL, "accept_then_reset")
+
+
+def test_none_always_warns_even_when_a_connection_resets() -> None:
+    result = _result(_report(DrainStrategy.NONE, reset=True))
+    assert (result.status, result.branch) == (Status.WARN, "none_uncovered")
 
 
 def test_accept_then_reset_is_not_applicable_for_prestop() -> None:

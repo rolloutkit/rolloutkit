@@ -98,16 +98,6 @@ class DrainWindowContract:
                 "prestop_not_applicable",
             )
 
-        resets = report.accept_then_reset
-        if resets:
-            first = report.offset_ms(resets[0].connected_ns)
-            return result(
-                Status.FAIL,
-                f"{len(resets)} connection(s) started after SIGTERM were reset "
-                f"without a response (first connected at +{(first or 0):.0f}ms)",
-                "accept_then_reset",
-            )
-
         if strategy is DrainStrategy.NONE:
             return result(
                 Status.WARN,
@@ -116,6 +106,16 @@ class DrainWindowContract:
                 "Add a preStop sleep, or test application-owned draining with "
                 "--drain in_app",
                 "none_uncovered",
+            )
+
+        resets = report.accept_then_reset
+        if resets:
+            first = report.offset_ms(resets[0].connected_ns)
+            return result(
+                Status.FAIL,
+                f"{len(resets)} connection(s) started after SIGTERM were reset "
+                f"without a response (first connected at +{(first or 0):.0f}ms)",
+                "accept_then_reset",
             )
 
         required = report.config.deployment.drain.in_app_window

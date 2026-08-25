@@ -178,6 +178,8 @@ def _evidence(report: RunReport) -> dict[str, Any]:
         if t2 is not None and attempt.started_ns > t2
     )
     return {
+        "probe_location": report.probe_location,
+        "probe_fallback_reason": report.probe_fallback_reason,
         "t0_sigterm_ns": report.sigterm_ns,
         "t1_readiness_offset_ms": report.readiness_drop_delay_ms,
         "t1_readiness_mode": report.readiness_drop_observation,

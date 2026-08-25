@@ -122,6 +122,12 @@ class Probes(Strict):
     health: Probe | None = None
 
 
+class TrafficProbe(Strict):
+    """The run-scoped container that originates lifecycle traffic."""
+
+    image: str = "python:3.12-slim"
+
+
 class StartupContract(Strict):
     budget: Duration = 15_000
 
@@ -181,6 +187,7 @@ class Config(Strict):
     services: dict[str, Service] = Field(default_factory=dict)
     deployment: Deployment = Deployment()
     probes: Probes = Probes()
+    probe: TrafficProbe = TrafficProbe()
     contracts: Contracts = Contracts()
     timeouts: Timeouts = Timeouts()
 

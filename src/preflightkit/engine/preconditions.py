@@ -48,7 +48,7 @@ def _readiness_fallback_resolvable(report: RunReport) -> Resolution:
         return Resolution(
             False,
             "readiness fallback cannot be resolved because readiness p50 or "
-            "daemon jitter was not measured; point --inflight-path at a slower "
+            "probe-path jitter was not measured; point --inflight-path at a slower "
             "endpoint",
             evidence,
         )

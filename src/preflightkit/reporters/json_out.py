@@ -113,12 +113,17 @@ def _environment(report: RunReport) -> dict[str, Any]:
         "docker_endpoint": report.docker_endpoint,
         "docker_server": report.docker_server,
         "measurement_jitter_ms": report.measurement_jitter_ms,
+        "probe_location": report.probe_location,
+        "probe_fallback_reason": report.probe_fallback_reason,
+        "probe_image": report.probe_image,
+        "probe_clock_alignment_ms": report.probe_clock_alignment_ms,
         "port_proxy_likely": report.port_proxy_likely,
         "network_name": report.network_name,
         "traffic_endpoint": report.traffic_endpoint,
         "measurement_note": (
-            "Timestamps are sourced from monotonic_ns. Observations made through "
-            "the Docker daemon are bounded by measurement_jitter_ms."
+            "Timestamps are sourced from monotonic_ns. Application-facing "
+            "observations are bounded by measurement_jitter_ms measured at "
+            f"{report.probe_location}."
         ),
         "docker_init_injected": False,
     }

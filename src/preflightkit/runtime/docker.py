@@ -9,6 +9,10 @@ spawn time and output parsing on top of that.
 from __future__ import annotations
 
 import json
+import io
+import importlib.util
+from pathlib import Path
+import tarfile
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -40,6 +44,24 @@ PROBE_IMAGE = "busybox:latest"
 #: Ceiling for the auxiliary containers. They run `cat` and `sleep`.
 _PROBE_MEMORY_BYTES = 64 * 1024 * 1024
 _PROBE_NANO_CPUS = 500_000_000
+SIDECAR_CONTROL_PORT = 8765
+_SIDECAR_BOOTSTRAP = r'''
+import io, os, tarfile, threading, time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+def launch():
+    time.sleep(0.05)
+    os.execve("/usr/local/bin/python", ["python", "-B", "-u", "/opt/pfk_probe/sidecar_entry.py"], {"PYTHONPATH": "/opt/pfk_probe/vendor"})
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *args): pass
+    def do_POST(self):
+        if self.path != "/load": self.send_error(404); return
+        data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+            archive.extractall("/opt")
+        self.send_response(204); self.end_headers(); self.wfile.flush()
+        threading.Thread(target=launch, daemon=True).start()
+HTTPServer(("0.0.0.0", 8765), H).serve_forever()
+'''
 
 #: Five samples expose the host's spread without turning calibration into the
 #: dominant cost of a run. Three standard deviations form the measured upper
@@ -283,6 +305,72 @@ class DockerRuntime:
             published_port=published_port,
         )
 
+    async def start_traffic_probe(
+        self, *, image: str, network_name: str, name: str
+    ) -> Container:
+        """Start the restricted traffic sidecar from a generic Python image.
+
+        A standard-library bootstrap receives the executable and its pure-Python
+        dependencies into a bounded tmpfs. No registry-hosted preflightkit image,
+        Docker socket, or host filesystem mount is involved.
+        """
+        if not await self.image_exists(image):
+            raise DockerError(
+                f"probe image {image!r} is not present locally; run "
+                f"`docker pull {image}` or configure probe.image"
+            )
+        port_key = f"{SIDECAR_CONTROL_PORT}/tcp"
+        body = _traffic_probe_body(image, network_name, name)
+        created = await self._request(
+            "POST", "/containers/create", params={"name": name}, json=body
+        )
+        self._raise_for_status(created, f"creating traffic probe from {image}")
+        container_id = str(created.json()["Id"])
+        try:
+            started = await self._request("POST", f"/containers/{container_id}/start")
+            self._raise_for_status(started, f"starting traffic probe from {image}")
+            details = await self._request("GET", f"/containers/{container_id}/json")
+            self._raise_for_status(details, "inspecting traffic probe")
+            info = details.json()
+            network_info = (
+                (info.get("NetworkSettings") or {}).get("Networks") or {}
+            ).get(network_name) or {}
+            mapping = (
+                (info.get("NetworkSettings") or {}).get("Ports") or {}
+            ).get(port_key)
+            if not network_info.get("IPAddress") or not mapping:
+                raise DockerError("traffic probe did not attach to the run network")
+            container = Container(
+                id=container_id,
+                name=info.get("Name", "").lstrip("/"),
+                host=mapping[0].get("HostIp") or "127.0.0.1",
+                host_port=int(mapping[0]["HostPort"]),
+                container_ip=str(network_info["IPAddress"]),
+                published_port=int(mapping[0]["HostPort"]),
+            )
+            archive = _traffic_probe_archive()
+            async with httpx.AsyncClient(
+                base_url=f"http://{container.host}:{container.host_port}", timeout=15
+            ) as control:
+                with anyio.fail_after(15):
+                    while True:
+                        try:
+                            copied = await control.post(
+                                "/load",
+                                content=archive,
+                                headers={"Content-Type": "application/x-tar"},
+                            )
+                            if copied.status_code == 204:
+                                break
+                        except httpx.HTTPError:
+                            pass
+                        await anyio.sleep(0.05)
+            return container
+        except BaseException:
+            await self._request(
+                "DELETE", f"/containers/{container_id}", params={"force": "1", "v": "1"}
+            )
+            raise
     async def signal(self, container: Container, sig: str) -> None:
         """Send a signal explicitly.
 
@@ -614,3 +702,86 @@ def json_lines(payload: bytes) -> list[dict[str, Any]]:
             except json.JSONDecodeError:
                 continue
     return result
+
+
+def _traffic_probe_archive() -> bytes:
+    """Build the runtime payload copied into the generic probe image."""
+    root = Path(__file__).resolve().parents[1]
+    files = (
+        root / "__init__.py",
+        root / "runtime" / "sidecar_entry.py",
+        root / "engine" / "__init__.py",
+        root / "engine" / "events.py",
+        root / "engine" / "bus.py",
+        root / "traffic" / "__init__.py",
+        root / "traffic" / "accept_probe.py",
+        root / "traffic" / "client.py",
+        root / "traffic" / "generator.py",
+    )
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        for source in files:
+            relative = source.relative_to(root)
+            destination = (
+                Path("pfk_probe/sidecar_entry.py")
+                if relative == Path("runtime/sidecar_entry.py")
+                else Path("pfk_probe/vendor/preflightkit") / relative
+            )
+            archive.add(source, arcname=str(destination), recursive=False)
+        for package in ("anyio", "sniffio", "idna"):
+            spec = importlib.util.find_spec(package)
+            if spec is None or not spec.submodule_search_locations:
+                raise DockerError(f"cannot package traffic probe dependency {package}")
+            source = Path(next(iter(spec.submodule_search_locations)))
+
+            def filter_cache(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+                return None if "__pycache__" in Path(info.name).parts else info
+
+            archive.add(
+                source,
+                arcname=f"pfk_probe/vendor/{package}",
+                filter=filter_cache,
+            )
+        typing_spec = importlib.util.find_spec("typing_extensions")
+        if typing_spec is None or typing_spec.origin is None:
+            raise DockerError("cannot package traffic probe dependency typing_extensions")
+        archive.add(
+            Path(typing_spec.origin),
+            arcname="pfk_probe/vendor/typing_extensions.py",
+            recursive=False,
+        )
+    return output.getvalue()
+
+
+def _traffic_probe_body(image: str, network_name: str, name: str) -> dict[str, Any]:
+    """Docker create payload, kept inspectable for security regression tests."""
+    port_key = f"{SIDECAR_CONTROL_PORT}/tcp"
+    return {
+        "Image": image,
+        "Cmd": ["python", "-B", "-u", "-c", _SIDECAR_BOOTSTRAP],
+        "Labels": {LABEL_OWNER: "1"},
+        "ExposedPorts": {port_key: {}},
+        "HostConfig": {
+            "Init": False,
+            "Privileged": False,
+            "ReadonlyRootfs": True,
+            "Tmpfs": {
+                "/opt/pfk_probe": "rw,nosuid,nodev,noexec,size=16m,mode=0755"
+            },
+            "NetworkMode": network_name,
+            "AutoRemove": False,
+            "Memory": 128 * 1024 * 1024,
+            "NanoCpus": _PROBE_NANO_CPUS,
+            "PidsLimit": 128,
+            "CapDrop": ["ALL"],
+            "SecurityOpt": ["no-new-privileges:true"],
+            "PortBindings": {
+                port_key: [{"HostIp": "127.0.0.1", "HostPort": ""}]
+            },
+        },
+        "NetworkingConfig": {
+            "EndpointsConfig": {
+                network_name: {"Aliases": ["preflightkit-probe"]}
+            }
+        },
+    }

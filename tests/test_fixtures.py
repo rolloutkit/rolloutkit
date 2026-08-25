@@ -82,10 +82,11 @@ def built_images() -> None:
 
 @pytest.mark.parametrize("entry", _fixtures(), ids=lambda e: e["name"])
 def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
-    if entry.get("linux_only") and platform.system() != "Linux":
-        pytest.skip("SP004 listener semantics require a native Linux host")
     if entry.get("desktop_only") and platform.system() == "Linux":
-        pytest.skip("fixture covers Docker Desktop's published-port proxy")
+        pytest.skip(
+            "the fallback proxy branch exists only on Docker Desktop; Linux "
+            "fallback uses the target's direct bridge address"
+        )
     command = [
         str(_cli()),
         "test",
@@ -96,11 +97,6 @@ def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
         "--fail-on",
         "error",
     ]
-    if platform.system() != "Linux":
-        # SP004 is required and correctly INCONCLUSIVE through Docker Desktop's
-        # port proxy. Keep exercising the older contracts here; required-gating
-        # behavior has its own platform-independent tests.
-        command.append("--allow-inconclusive")
     run = subprocess.run(
         command,
         capture_output=True,
@@ -154,8 +150,7 @@ def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
     # Exit gating applies to the whole report, including contracts this row is
     # not using to cover a matrix branch.
     statuses = {result["status"] for result in results.values()}
-    blocking = BLOCKING if platform.system() == "Linux" else {"FAIL", "ERROR"}
-    expected_exit = 1 if blocking & statuses else 0
+    expected_exit = 1 if BLOCKING & statuses else 0
     assert run.returncode == expected_exit
 
 
@@ -304,16 +299,35 @@ def test_delayed_bind_distinguishes_linux_direct_ip_from_desktop_proxy(
     sp001 = next(item for item in report["contracts"] if item["id"] == "SP001")
     environment = report["environment"]
 
-    if environment["host_os"].lower().startswith("linux"):
-        assert environment["port_proxy_likely"] is False
-        assert sp001["actual"]["tcp_open_status"] == "MEASURED"
-        assert 2_500 <= sp001["actual"]["tcp_open_ms"] <= 6_000
-        assert environment["traffic_endpoint"].split(":", 1)[0] != "127.0.0.1"
-    else:
-        assert environment["port_proxy_likely"] is True
-        assert sp001["actual"]["tcp_open_status"] == "INCONCLUSIVE"
-        assert sp001["actual"]["tcp_open_ms"] is None
-        assert environment["traffic_endpoint"].startswith("127.0.0.1:")
+    assert environment["probe_location"] == "sidecar"
+    assert environment["port_proxy_likely"] is False
+    assert sp001["actual"]["tcp_open_status"] == "MEASURED"
+    assert 2_500 <= sp001["actual"]["tcp_open_ms"] <= 6_000
+    assert environment["traffic_endpoint"] == "target:8000"
+
+
+def test_missing_probe_image_uses_explicit_host_fallback(built_images: None) -> None:
+    run = subprocess.run(
+        [
+            str(_cli()),
+            "test",
+            "--config",
+            str(FIXTURES / "drain-window/host-fallback.yaml"),
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    report = json.loads(run.stdout)
+    environment = report["environment"]
+
+    assert environment["probe_location"] == "host_fallback"
+    assert "not present locally" in environment["probe_fallback_reason"]
+    sp004 = next(item for item in report["contracts"] if item["id"] == "SP004")
+    assert sp004["evidence"]["probe_location"] == "host_fallback"
+    assert sp004["evidence"]["probe_fallback_reason"]
 
 
 def test_one_image_two_profiles(built_images: None) -> None:

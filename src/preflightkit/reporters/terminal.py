@@ -327,16 +327,26 @@ def _environment_block(console: Console, report: RunReport) -> None:
         bits.append(f"{report.cpu_count} cpu")
     if report.load_average:
         bits.append("load %.2f" % report.load_average[0])
+    bits.append(f"probe {report.probe_location}")
     if jitter is not None:
-        bits.append(f"daemon rtt ~{jitter:.1f}ms")
+        bits.append(f"probe-path jitter ~{jitter:.1f}ms")
     if report.teardown_calibration_status == "not_calibrated":
         bits.append("teardown not_calibrated")
     console.print(Text("  " + " | ".join(bits), style="dim"))
+    if report.probe_fallback_reason:
+        console.print(
+            Text(
+                f"  Sidecar unavailable; using host fallback: "
+                f"{report.probe_fallback_reason}",
+                style="yellow",
+            )
+        )
     if jitter is not None:
         console.print(
             Text(
-                f"  Timestamps come from monotonic_ns; anything observed through "
-                f"Docker is precise to about {jitter:.1f}ms, not to the nanosecond.",
+                f"  Timestamps come from monotonic_ns; application-facing "
+                f"observations are precise to about {jitter:.1f}ms at "
+                f"{report.probe_location}, not to the nanosecond.",
                 style="dim",
             )
         )

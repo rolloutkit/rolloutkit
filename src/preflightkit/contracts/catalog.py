@@ -106,7 +106,7 @@ CATALOG: dict[str, ContractDoc] = {
         "Whether every request already in flight at SIGTERM completes without reset or truncation.",
         (
             "SP005 is not explicitly disabled with contracts.inflight: null.",
-            "Readiness fallback is at least 10x slower than daemon jitter, or --inflight-path is passed.",
+            "Readiness fallback is at least 10x slower than probe-path jitter, or --inflight-path is passed.",
             "Shutdown starts.",
             "The steady-state request baseline is 2xx.",
         ),

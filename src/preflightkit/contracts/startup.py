@@ -22,7 +22,11 @@ class StartupContract:
     def evaluate(self, report: RunReport) -> ContractResult:
         budget = report.config.contracts.startup.budget
         duration = report.startup_duration_ms
-        tcp_observed = _delta(report.container_started_ns, report.tcp_open_ns)
+        tcp_observed = (
+            report.tcp_open_duration_ms
+            if report.tcp_open_duration_ms is not None
+            else _delta(report.container_started_ns, report.tcp_open_ns)
+        )
         actual = {
             "container_start_overhead_ms": report.container_start_overhead_ms,
             "startup_resolution_ms": report.startup_resolution_ms,
@@ -34,6 +38,8 @@ class StartupContract:
             "tcp_open_is_meaningful": report.tcp_open_is_meaningful,
             "readiness_ready_ms": duration,
             "readiness_status": report.readiness_status,
+            "probe_location": report.probe_location,
+            "probe_fallback_reason": report.probe_fallback_reason,
         }
         proxy_note = (
             [

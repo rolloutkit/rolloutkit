@@ -29,7 +29,9 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Cache the runtime probe image
-        run: docker pull busybox:latest
+        run: |
+          docker pull busybox:latest
+          docker pull python:3.12-slim
 
       - name: Ruff
         run: uv run ruff check src tests

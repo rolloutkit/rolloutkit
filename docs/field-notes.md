@@ -11,6 +11,11 @@ Historical sections that predate JSON provenance are marked with
 `preflightkit commit: unknown (pre-provenance)`. New measurements must name the
 exact harness commit in their section heading.
 
+Unless a historical row explicitly says `probe_location: sidecar`, every
+measurement before the product-sidecar rerun used
+`probe_location: host_direct`. Those rows remain unchanged as the historical
+baseline.
+
 ---
 
 ## service-a (2026-08-21; preflightkit commit: unknown, pre-provenance)

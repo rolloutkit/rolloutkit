@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
+import time
 import uuid
 
 import anyio
@@ -20,6 +21,7 @@ from preflightkit.engine.events import Kind, event, now_ns
 from preflightkit.probes.http import probe_http, wait_for_readiness, wait_for_tcp
 from preflightkit.runtime.base import Container, ContainerSpec, DaemonEvent
 from preflightkit.runtime.docker import DockerError, DockerRuntime
+from preflightkit.runtime.traffic_probe import TrafficProbe
 from preflightkit.traffic.baseline import measure_baseline, measure_readiness_baseline
 from preflightkit.traffic.accept_probe import (
     ACCEPT_PROBE_INTERVAL_MS,
@@ -74,9 +76,6 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         "os": runtime.server_info.get("Os"),
         "arch": runtime.server_info.get("Arch"),
     }
-    report.ping_latencies_ns = await runtime.ping_latency_ns()
-    report.port_proxy_likely = _port_proxy_likely(report)
-
     try:
         report.image_config = (await runtime.inspect_image(config.target.image)).get("Config", {})
     except DockerError:
@@ -87,7 +86,26 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
     report.network_name = network.name
     started: list[Container] = []
     container: Container | None = None
+    traffic_probe: TrafficProbe | None = None
     try:
+        try:
+            traffic_probe = await TrafficProbe.start(
+                runtime,
+                image=config.probe.image,
+                network_name=network.name,
+                name=f"pfk-{run_token}-probe",
+            )
+            started.append(traffic_probe.container)
+            report.probe_location = "sidecar"
+            report.probe_image = config.probe.image
+            report.port_proxy_likely = False
+        except (DockerError, httpx.HTTPError, TimeoutError) as exc:
+            report.probe_location = "host_fallback"
+            report.probe_fallback_reason = str(exc)
+            report.probe_image = config.probe.image
+            report.ping_latencies_ns = await runtime.ping_latency_ns()
+            report.port_proxy_likely = _port_proxy_likely(report)
+
         for service_name, service in config.services.items():
             dependency = await runtime.start(
                 ContainerSpec(
@@ -112,15 +130,23 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
                 name=f"pfk-{run_token}-target",
                 network_name=network.name,
                 network_aliases=("target",),
-                publish_port=report.port_proxy_likely,
+                publish_port=(
+                    report.probe_location == "host_fallback"
+                    and report.port_proxy_likely
+                ),
             )
         )
         started.append(container)
         container_started_observed_ns = now_ns()
+        container_started_unix_ns = time.time_ns()
         report.container_start_overhead_ms = (
             container_started_observed_ns - container_start_requested_ns
         ) / 1_000_000
-        report.traffic_endpoint = f"{container.host}:{container.host_port}"
+        report.traffic_endpoint = (
+            f"target:{config.target.port}"
+            if traffic_probe is not None
+            else f"{container.host}:{container.host_port}"
+        )
         report.container_started_ns = container_started_observed_ns
         report.bus.record(
             event(
@@ -133,7 +159,18 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             )
         )
 
-        await _startup(config, runtime, container, report)
+        if traffic_probe is not None:
+            await _startup_sidecar(
+                config,
+                runtime,
+                container,
+                report,
+                traffic_probe,
+                container_started_unix_ns,
+            )
+            report.ping_latencies_ns = await traffic_probe.jitter(config.target.port)
+        else:
+            await _startup(config, runtime, container, report)
         await _calibrate(
             runtime,
             container,
@@ -141,9 +178,15 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             config.target.port,
             network.name,
             report.port_proxy_likely,
+            traffic_probe,
         )
-        await _baseline(config, runtime, container, report)
-        await _shutdown(config, runtime, container, report)
+        if traffic_probe is not None:
+            await traffic_probe.baseline(report)
+            _finish_baseline(config, report)
+            await traffic_probe.shutdown(runtime, container, report)
+        else:
+            await _baseline(config, runtime, container, report)
+            await _shutdown(config, runtime, container, report)
     finally:
         if container is not None:
             try:
@@ -151,6 +194,8 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
                 report.container_state = (await runtime.inspect(container)).get("State", {})
             except Exception:  # noqa: BLE001 - cleanup must not mask the real error
                 pass
+        if traffic_probe is not None:
+            await traffic_probe.close()
         for running in reversed(started):
             try:
                 await runtime.remove(running)
@@ -252,6 +297,61 @@ async def _startup(
         )
 
 
+async def _startup_sidecar(
+    config: Config,
+    runtime: DockerRuntime,
+    container: Container,
+    report: RunReport,
+    probe: TrafficProbe,
+    container_started_unix_ns: int,
+) -> None:
+    try:
+        measured = await probe.startup(
+            target_started_unix_ns=container_started_unix_ns,
+            port=config.target.port,
+            path=config.probes.readiness.path,
+            expected_status=config.probes.readiness.expected_status,
+            budget_ms=config.timeouts.startup,
+        )
+    except (DockerError, httpx.HTTPError) as exc:
+        state = (await runtime.inspect(container)).get("State", {})
+        report.container_state = state
+        report.logs_tail = await runtime.logs(container, tail=_LOG_TAIL)
+        if not state.get("Running", False):
+            raise StartupFailure(
+                f"container exited during startup with code {state.get('ExitCode')} — "
+                f"sidecar readiness never passed ({exc})",
+                logs=report.logs_tail,
+            ) from exc
+        raise StartupFailure(
+            f"sidecar could not observe readiness {config.probes.readiness.path}: {exc}",
+            logs=report.logs_tail,
+        ) from exc
+    report.tcp_open_duration_ms = measured.get("tcp_open_ms")
+    report.startup_duration_observed_ms = measured.get("readiness_ms")
+    report.readiness_status = measured.get("status")
+    origin = report.container_started_ns or now_ns()
+    if report.tcp_open_duration_ms is not None:
+        report.tcp_open_ns = origin + int(report.tcp_open_duration_ms * 1_000_000)
+        report.bus.record(
+            event(
+                Kind.PORT_OPENED,
+                timestamp_ns=report.tcp_open_ns,
+                port=config.target.port,
+            )
+        )
+    report.readiness_ok_ns = origin + int(
+        (report.startup_duration_observed_ms or 0) * 1_000_000
+    )
+    report.bus.record(
+        event(
+            Kind.READINESS_PASSED,
+            timestamp_ns=report.readiness_ok_ns,
+            status=report.readiness_status,
+        )
+    )
+
+
 async def _calibrate(
     runtime: DockerRuntime,
     container: Container,
@@ -259,6 +359,7 @@ async def _calibrate(
     port: int,
     network_name: str,
     publish_port: bool,
+    traffic_probe: TrafficProbe | None = None,
 ) -> None:
     """Two measurements taken while the container is healthy and unsignalled.
 
@@ -271,11 +372,17 @@ async def _calibrate(
     if report.config.deployment.shutdown_budget_ms > TEARDOWN_CALIBRATION_MAX_BUDGET_MS:
         report.teardown_calibration_status = "not_calibrated"
         return
-    report.teardown_calibration = await runtime.measure_teardown_floor(
-        port=port,
-        network_name=network_name,
-        publish_port=publish_port,
-    )
+    if traffic_probe is not None:
+        report.teardown_calibration = await traffic_probe.measure_teardown_floor(
+            network_name=network_name,
+            image=report.config.probe.image,
+        )
+    else:
+        report.teardown_calibration = await runtime.measure_teardown_floor(
+            port=port,
+            network_name=network_name,
+            publish_port=publish_port,
+        )
     report.teardown_calibration_status = (
         "calibrated" if report.teardown_calibration is not None else "unavailable"
     )
@@ -336,12 +443,42 @@ async def _baseline(
         timeout_ms=inflight.request.expected_duration + 5000,
     )
     report.baseline = baseline
+    _finish_baseline(config, report)
+
+
+def _finish_baseline(config: Config, report: RunReport) -> None:
+    """Resolve SP005 targeting after either traffic placement measured it."""
+    inflight = config.contracts.inflight
+    if inflight is None:
+        report.inflight_target = "disabled"
+        return
+
+    fallback = inflight.request.path is None
+    report.inflight_target = "readiness_fallback" if fallback else "configured"
+    report.inflight_path = inflight.request.path or config.probes.readiness.path
+    if fallback:
+        report.inflight_fallback_p50_ms = (
+            report.readiness_baseline.p50_ms if report.readiness_baseline else None
+        )
+        report.inflight_fallback_jitter_ms = report.measurement_jitter_ms
+        if report.inflight_fallback_p50_ms is not None and report.inflight_fallback_jitter_ms:
+            report.inflight_fallback_ratio = (
+                report.inflight_fallback_p50_ms / report.inflight_fallback_jitter_ms
+            )
+        if (
+            report.inflight_fallback_ratio is None
+            or report.inflight_fallback_ratio < MIN_JITTER_RATIO
+        ):
+            return
+
+    if report.baseline is None:
+        return
     report.bus.record(
         event(
             Kind.BASELINE_MEASURED,
-            samples=baseline.samples,
-            succeeded=baseline.succeeded,
-            p50_ms=baseline.p50_ms,
+            samples=report.baseline.samples,
+            succeeded=report.baseline.succeeded,
+            p50_ms=report.baseline.p50_ms,
         )
     )
 
@@ -355,7 +492,7 @@ async def _baseline(
         )
         report.sigterm_after_source = "readiness_fallback"
     else:
-        report.sigterm_after_ms = baseline.suggested_sigterm_after_ms
+        report.sigterm_after_ms = report.baseline.suggested_sigterm_after_ms
         report.sigterm_after_source = "baseline"
 
 

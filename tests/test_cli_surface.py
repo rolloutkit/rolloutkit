@@ -49,6 +49,20 @@ def test_one_line_configless_defaults(tmp_path: Path, monkeypatch) -> None:
     assert str(config.deployment.drain.strategy) == "none"
     assert config.contracts.inflight is not None
     assert config.contracts.inflight.request.path is None
+    assert config.probe.image == "python:3.12-slim"
+
+
+def test_probe_image_can_be_configured(tmp_path: Path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    path = tmp_path / "preflightkit.yaml"
+    path.write_text(
+        "target: {image: fixture:latest, port: 8000}\n"
+        "probe: {image: python:3.13-slim}\n"
+    )
+
+    config = load_config(config_path=path)
+
+    assert config.probe.image == "python:3.13-slim"
 
 
 def test_cli_over_env_over_file_over_default(tmp_path: Path, monkeypatch) -> None:

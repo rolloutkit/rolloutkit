@@ -36,6 +36,8 @@ class RunReport:
     container_started_ns: int | None = None
     tcp_open_ns: int | None = None
     readiness_ok_ns: int | None = None
+    tcp_open_duration_ms: float | None = None
+    startup_duration_observed_ms: float | None = None
     readiness_status: int | None = None
     startup_failure: str | None = None
 
@@ -101,6 +103,10 @@ class RunReport:
     port_proxy_likely: bool = False
     network_name: str = ""
     traffic_endpoint: str = ""
+    probe_location: str = "host_fallback"
+    probe_fallback_reason: str | None = None
+    probe_image: str | None = None
+    probe_clock_alignment_ms: float | None = None
 
     def offset_ms(self, timestamp_ns: int | None) -> float | None:
         """Milliseconds after T0. Negative values mean before the signal."""
@@ -110,11 +116,10 @@ class RunReport:
 
     @property
     def measurement_jitter_ms(self) -> float | None:
-        """Median cost of a no-op daemon round trip.
+        """Median timing floor measured at the active traffic location.
 
-        Timestamps are sourced from `monotonic_ns`, but anything observed through
-        Docker is only as precise as this figure. Reporting nanoseconds without
-        reporting this would be false precision.
+        The sidecar measures fresh TCP connection round trips to the target. The
+        host fallback retains the Docker daemon round-trip calibration.
         """
         if not self.ping_latencies_ns:
             return None
@@ -203,16 +208,16 @@ class RunReport:
     def tcp_open_is_meaningful(self) -> bool:
         """Whether the TCP timestamp says anything about the application.
 
-        Two separate reasons it may not. The listen backlog completes handshakes
-        before accept() is ever called, and on Docker Desktop the published port
-        is fronted by a proxy that opens as soon as the container is created —
-        before the process inside has bound anything. Reporting such a number as
-        "the port opened" would be exactly the guessing this tool rejects.
+        The listen backlog completes handshakes before accept() is ever called.
+        The fallback has a second possible limitation: Docker Desktop's
+        published-port proxy opens before the application binds its listener.
         """
         return not self.port_proxy_likely
 
     @property
     def startup_duration_ms(self) -> float | None:
+        if self.startup_duration_observed_ms is not None:
+            return self.startup_duration_observed_ms
         if self.container_started_ns is None or self.readiness_ok_ns is None:
             return None
         return (self.readiness_ok_ns - self.container_started_ns) / 1_000_000

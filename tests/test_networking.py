@@ -15,7 +15,7 @@ from preflightkit.engine.context import RunReport
 from preflightkit.engine.lifecycle import _calibrate
 from preflightkit.runtime.base import Container, ContainerSpec
 from preflightkit.runtime.base import TeardownCalibration
-from preflightkit.runtime.docker import DockerError, DockerRuntime
+from preflightkit.runtime.docker import DockerError, DockerRuntime, _traffic_probe_body
 
 
 def _response(status: int, body: dict[str, Any] | None = None) -> httpx.Response:
@@ -118,6 +118,23 @@ def test_desktop_target_uses_published_fallback_but_keeps_custom_bridge() -> Non
         assert "8000/tcp" in body["HostConfig"]["PortBindings"]
 
     anyio.run(scenario)
+
+
+def test_traffic_probe_is_restricted_and_has_no_host_mount() -> None:
+    body = _traffic_probe_body("python:3.12-slim", "pfk-run", "probe")
+    host = body["HostConfig"]
+
+    assert host["Privileged"] is False
+    assert host["NetworkMode"] == "pfk-run"
+    assert host["ReadonlyRootfs"] is True
+    assert host["Memory"] == 128 * 1024 * 1024
+    assert host["NanoCpus"] == 500_000_000
+    assert host["PidsLimit"] == 128
+    assert host["CapDrop"] == ["ALL"]
+    assert host["SecurityOpt"] == ["no-new-privileges:true"]
+    assert "Binds" not in host
+    assert "Mounts" not in host
+    assert host["NetworkMode"] != "host"
 
 
 def test_container_that_exits_before_inspect_is_not_leaked() -> None:

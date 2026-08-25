@@ -164,6 +164,8 @@ def _window_evidence(report: RunReport) -> dict[str, Any]:
     if jitter and window is not None:
         ratio = round(window / jitter, 1)
     return {
+        "probe_location": report.probe_location,
+        "probe_fallback_reason": report.probe_fallback_reason,
         "inflight_target": report.inflight_target,
         "path": report.inflight_path,
         "readiness_p50_ms": report.inflight_fallback_p50_ms,

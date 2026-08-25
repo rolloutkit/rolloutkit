@@ -6,20 +6,22 @@ measurement path on every supported platform.
 
 ## Configuration
 
-The probe uses the public `python:3.12-slim` image by default. Configure another
-locally available Python image when your environment mirrors base images under
-a different name:
+The probe uses the public `python:3.12-slim` image by default. On the first run,
+Preflightkit pulls this base image if it is not already available and reports
+`pulling probe image (~50MB, once)...` on stderr. Configure another Python image
+when your environment mirrors base images under a different name:
 
 ```yaml
 probe:
   image: registry.internal.example/python:3.12-slim
 ```
 
-Preflightkit doesn't publish or pull a custom probe image. It copies the probe
-program and its exact traffic dependencies into a temporary in-memory filesystem
-when the container starts. This avoids a Preflightkit registry dependency and
-keeps the CLI and probe code on the same version. In an air-gapped environment,
-load the configured base image into Docker before running Preflightkit.
+Preflightkit doesn't publish a custom probe image. It copies the probe program
+and its exact traffic dependencies into a temporary in-memory filesystem when
+the container starts. This avoids a Preflightkit registry dependency and keeps
+the CLI and probe code on the same version. In an air-gapped environment, load
+the configured base image into Docker before running Preflightkit; no pull is
+attempted when that image is already present.
 
 If Docker can't start the probe or attach it to the run network, Preflightkit
 uses host traffic. JSON evidence then reports `probe_location: host_fallback`

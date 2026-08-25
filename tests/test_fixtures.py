@@ -306,7 +306,7 @@ def test_delayed_bind_distinguishes_linux_direct_ip_from_desktop_proxy(
     assert environment["traffic_endpoint"] == "target:8000"
 
 
-def test_missing_probe_image_uses_explicit_host_fallback(built_images: None) -> None:
+def test_unusable_probe_image_uses_explicit_host_fallback(built_images: None) -> None:
     run = subprocess.run(
         [
             str(_cli()),
@@ -324,7 +324,7 @@ def test_missing_probe_image_uses_explicit_host_fallback(built_images: None) -> 
     environment = report["environment"]
 
     assert environment["probe_location"] == "host_fallback"
-    assert "not present locally" in environment["probe_fallback_reason"]
+    assert "traffic probe bootstrap timed out" in environment["probe_fallback_reason"]
     sp004 = next(item for item in report["contracts"] if item["id"] == "SP004")
     assert sp004["evidence"]["probe_location"] == "host_fallback"
     assert sp004["evidence"]["probe_fallback_reason"]

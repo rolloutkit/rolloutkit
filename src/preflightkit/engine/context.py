@@ -107,6 +107,17 @@ class RunReport:
     probe_fallback_reason: str | None = None
     probe_image: str | None = None
     probe_clock_alignment_ms: float | None = None
+    phase_durations_ms: dict[str, float] = field(
+        default_factory=lambda: {
+            "probe_image_preparation": 0.0,
+            "dependencies": 0.0,
+            "target_start": 0.0,
+            "baseline": 0.0,
+            "calibration": 0.0,
+            "experiment": 0.0,
+            "teardown": 0.0,
+        }
+    )
 
     def offset_ms(self, timestamp_ns: int | None) -> float | None:
         """Milliseconds after T0. Negative values mean before the signal."""

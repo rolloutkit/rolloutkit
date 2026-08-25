@@ -85,8 +85,14 @@ class DockerError(Exception):
 
 
 class DockerRuntime:
-    def __init__(self, endpoint: Endpoint | None = None) -> None:
+    def __init__(
+        self,
+        endpoint: Endpoint | None = None,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> None:
         self._endpoint = endpoint or discover_endpoint()
+        self._progress = progress
         self._client = httpx.AsyncClient(
             transport=httpx.AsyncHTTPTransport(uds=self._endpoint.socket_path, retries=0),
             base_url="http://docker",
@@ -194,6 +200,27 @@ class DockerRuntime:
         response = await self._request("GET", f"/images/{image}/json")
         return response.status_code < 400
 
+    async def ensure_image(self, image: str, *, purpose: str) -> None:
+        """Pull a missing image once, with progress kept off machine output."""
+        if await self.image_exists(image):
+            return
+        if self._progress is not None:
+            size = " (~50MB, once)" if purpose == "probe" else " (once)"
+            self._progress(f"pulling {purpose} image{size}: {image}")
+        try:
+            completed = await anyio.run_process(
+                ["docker", "pull", image],
+                check=False,
+            )
+        except OSError as exc:
+            raise DockerError(f"could not run `docker pull {image}`: {exc}") from exc
+        if completed.returncode != 0:
+            detail = (completed.stderr or b"").decode(errors="replace").strip()
+            raise DockerError(
+                f"pulling {purpose} image {image!r} failed"
+                + (f": {detail[-2000:]}" if detail else "")
+            )
+
     async def create_network(self, name: str) -> Network:
         response = await self._request(
             "POST",
@@ -214,12 +241,7 @@ class DockerRuntime:
             self._raise_for_status(response, f"removing network {network.name}")
 
     async def start(self, spec: ContainerSpec) -> Container:
-        if not await self.image_exists(spec.image):
-            raise DockerError(
-                f"image {spec.image!r} is not present locally. "
-                "preflightkit does not pull images on your behalf; "
-                f"run `docker pull {spec.image}` first."
-            )
+        await self.ensure_image(spec.image, purpose=spec.image_purpose)
 
         port_key = f"{spec.port}/tcp" if spec.port is not None else None
         host_config: dict[str, Any] = {
@@ -314,11 +336,7 @@ class DockerRuntime:
         dependencies into a bounded tmpfs. No registry-hosted preflightkit image,
         Docker socket, or host filesystem mount is involved.
         """
-        if not await self.image_exists(image):
-            raise DockerError(
-                f"probe image {image!r} is not present locally; run "
-                f"`docker pull {image}` or configure probe.image"
-            )
+        await self.ensure_image(image, purpose="probe")
         port_key = f"{SIDECAR_CONTROL_PORT}/tcp"
         body = _traffic_probe_body(image, network_name, name)
         created = await self._request(
@@ -366,11 +384,17 @@ class DockerRuntime:
                             pass
                         await anyio.sleep(0.05)
             return container
-        except BaseException:
+        except BaseException as exc:
             await self._request(
                 "DELETE", f"/containers/{container_id}", params={"force": "1", "v": "1"}
             )
+            if isinstance(exc, TimeoutError):
+                raise DockerError(
+                    "traffic probe bootstrap timed out; the configured image "
+                    "may not provide Python 3"
+                ) from None
             raise
+
     async def signal(self, container: Container, sig: str) -> None:
         """Send a signal explicitly.
 

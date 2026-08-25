@@ -9,12 +9,13 @@ import pytest
 from typer.testing import CliRunner
 
 from preflightkit.cli.main import app
+from preflightkit import __version__
 from preflightkit.config.loader import load_config
 from preflightkit.config.models import Config, Target
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.engine.context import RunReport
 from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.reporters import junit
+from preflightkit.reporters import json_out, junit
 
 
 runner = CliRunner()
@@ -139,6 +140,17 @@ def test_explain_documents_every_contract(contract_id: str) -> None:
     assert "Preconditions:" in result.output
     assert "Verdicts:" in result.output
     assert "Why it matters:" in result.output
+    assert "First step after FAIL:" in result.output
+
+
+def test_version_flag_includes_package_version_and_commit(monkeypatch) -> None:
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    monkeypatch.setenv("PREFLIGHTKIT_COMMIT", commit)
+
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == f"preflightkit {__version__} ({commit})"
 
 
 def test_explain_sp004_names_all_drain_strategies() -> None:
@@ -191,3 +203,24 @@ def test_junit_is_parseable_and_maps_contract_statuses() -> None:
     assert len(cases[1].find("failure").text or "") <= 2_000
     assert cases[2].find("skipped").attrib["message"].startswith("INCONCLUSIVE")
     assert cases[3].find("skipped").attrib["message"].startswith("SKIP")
+
+
+def test_json_reports_per_run_and_aggregate_phase_durations() -> None:
+    config = Config(target=Target(image="fixture:latest", port=8000))
+    first = RunReport(config=config)
+    second = RunReport(config=config)
+    first.phase_durations_ms["baseline"] = 12.25
+    second.phase_durations_ms["baseline"] = 7.75
+    first.phase_durations_ms["teardown"] = 2.5
+    second.phase_durations_ms["teardown"] = 3.5
+    session = Session(
+        run_id="pfk_phases",
+        image="fixture:latest",
+        runs=[RunOutcome(report=first), RunOutcome(report=second)],
+    )
+
+    document = json_out.build(session, __version__)
+
+    assert document["phase_durations_ms"]["baseline"] == 20.0
+    assert document["phase_durations_ms"]["teardown"] == 6.0
+    assert document["runs"][0]["phase_durations_ms"]["baseline"] == 12.25

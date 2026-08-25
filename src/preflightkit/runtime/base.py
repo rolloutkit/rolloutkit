@@ -25,6 +25,7 @@ class ContainerSpec:
     network_name: str | None = None
     network_aliases: tuple[str, ...] = ()
     publish_port: bool = False
+    image_purpose: str = "container"
 
 
 @dataclass(frozen=True, slots=True)

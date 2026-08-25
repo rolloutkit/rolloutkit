@@ -76,12 +76,8 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         "os": runtime.server_info.get("Os"),
         "arch": runtime.server_info.get("Arch"),
     }
-    try:
-        report.image_config = (await runtime.inspect_image(config.target.image)).get("Config", {})
-    except DockerError:
-        report.image_config = {}
-
     run_token = uuid.uuid4().hex[:12]
+    phase_started_ns = now_ns()
     network = await runtime.create_network(f"pfk-{run_token}")
     report.network_name = network.name
     started: list[Container] = []
@@ -101,11 +97,13 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             report.port_proxy_likely = False
         except (DockerError, httpx.HTTPError, TimeoutError) as exc:
             report.probe_location = "host_fallback"
-            report.probe_fallback_reason = str(exc)
+            report.probe_fallback_reason = str(exc) or type(exc).__name__
             report.probe_image = config.probe.image
             report.ping_latencies_ns = await runtime.ping_latency_ns()
             report.port_proxy_likely = _port_proxy_likely(report)
+        _finish_phase(report, "probe_image_preparation", phase_started_ns)
 
+        phase_started_ns = now_ns()
         for service_name, service in config.services.items():
             dependency = await runtime.start(
                 ContainerSpec(
@@ -116,10 +114,13 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
                     name=f"pfk-{run_token}-{service_name}",
                     network_name=network.name,
                     network_aliases=(service_name,),
+                    image_purpose=f"dependency {service_name}",
                 )
             )
             started.append(dependency)
+        _finish_phase(report, "dependencies", phase_started_ns)
 
+        phase_started_ns = now_ns()
         container_start_requested_ns = now_ns()
         container = await runtime.start(
             ContainerSpec(
@@ -134,6 +135,7 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
                     report.probe_location == "host_fallback"
                     and report.port_proxy_likely
                 ),
+                image_purpose="target",
             )
         )
         started.append(container)
@@ -171,6 +173,15 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             report.ping_latencies_ns = await traffic_probe.jitter(config.target.port)
         else:
             await _startup(config, runtime, container, report)
+        try:
+            report.image_config = (await runtime.inspect_image(config.target.image)).get(
+                "Config", {}
+            )
+        except DockerError:
+            report.image_config = {}
+        _finish_phase(report, "target_start", phase_started_ns)
+
+        phase_started_ns = now_ns()
         await _calibrate(
             runtime,
             container,
@@ -180,14 +191,24 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             report.port_proxy_likely,
             traffic_probe,
         )
+        _finish_phase(report, "calibration", phase_started_ns)
+
+        phase_started_ns = now_ns()
         if traffic_probe is not None:
             await traffic_probe.baseline(report)
             _finish_baseline(config, report)
-            await traffic_probe.shutdown(runtime, container, report)
         else:
             await _baseline(config, runtime, container, report)
+        _finish_phase(report, "baseline", phase_started_ns)
+
+        phase_started_ns = now_ns()
+        if traffic_probe is not None:
+            await traffic_probe.shutdown(runtime, container, report)
+        else:
             await _shutdown(config, runtime, container, report)
+        _finish_phase(report, "experiment", phase_started_ns)
     finally:
+        teardown_started_ns = now_ns()
         if container is not None:
             try:
                 report.logs_tail = await runtime.logs(container, tail=_LOG_TAIL)
@@ -205,8 +226,13 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             await runtime.remove_network(network)
         except Exception:  # noqa: BLE001
             pass
+        _finish_phase(report, "teardown", teardown_started_ns)
 
     return report
+
+
+def _finish_phase(report: RunReport, phase: str, started_ns: int) -> None:
+    report.phase_durations_ms[phase] += (now_ns() - started_ns) / 1_000_000
 
 
 def _port_proxy_likely(report: RunReport) -> bool:

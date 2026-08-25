@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from preflightkit.config.models import Config
 from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.engine.events import now_ns
@@ -25,7 +27,11 @@ class InfrastructureError(Exception):
 
 
 async def run_session(
-    config: Config, *, repeat: int = 1, evaluate: bool = True
+    config: Config,
+    *,
+    repeat: int = 1,
+    evaluate: bool = True,
+    progress: Callable[[str], None] | None = None,
 ) -> Session:
     """Run the experiment `repeat` times and evaluate the contracts.
 
@@ -36,14 +42,22 @@ async def run_session(
     when what they actually need to do is build the image.
     """
     try:
-        return await _run_session(config, repeat=repeat, evaluate=evaluate)
+        return await _run_session(
+            config, repeat=repeat, evaluate=evaluate, progress=progress
+        )
     except DockerError as exc:
         raise InfrastructureError(str(exc)) from exc
 
 
-async def _run_session(config: Config, *, repeat: int, evaluate: bool) -> Session:
+async def _run_session(
+    config: Config,
+    *,
+    repeat: int,
+    evaluate: bool,
+    progress: Callable[[str], None] | None,
+) -> Session:
     session = Session(run_id=new_run_id(), image=config.target.image)
-    async with DockerRuntime() as runtime:
+    async with DockerRuntime(progress=progress) as runtime:
         for _ in range(repeat):
             started = now_ns()
             try:

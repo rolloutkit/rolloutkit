@@ -22,6 +22,7 @@ from preflightkit.engine.runner import InfrastructureError, run_session
 from preflightkit.evidence.redact import Redactor
 from preflightkit.evidence.model import Session
 from preflightkit.reporters import json_out, junit, terminal
+from preflightkit.provenance import preflightkit_commit
 from preflightkit.runtime.docker import DockerError
 from preflightkit.runtime.socket import DockerUnavailable
 
@@ -91,6 +92,27 @@ BLOCKING = {
     FailOn.ERROR: {Status.FAIL, Status.ERROR},
     FailOn.WARN: {Status.FAIL, Status.ERROR, Status.WARN},
 }
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(_version_text())
+        raise typer.Exit(ExitCode.OK)
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show version and source commit.",
+        ),
+    ] = False,
+) -> None:
+    """Measure container lifecycle behavior."""
 
 
 @app.command()
@@ -285,6 +307,7 @@ def explain(
         console.print("Drain strategies:")
         for note in doc.strategy_notes:
             console.print(f"  - {note}")
+    console.print(f"First step after FAIL: {doc.first_step}")
 
 
 @app.command("list-contracts")
@@ -341,7 +364,7 @@ def _blocking_results(
 @app.command()
 def version() -> None:
     """Print the version."""
-    console.print(__version__)
+    console.print(_version_text())
 
 
 def _config_error(exc: ConfigError) -> None:
@@ -352,7 +375,12 @@ def _config_error(exc: ConfigError) -> None:
 def _run(config: Config, *, repeat: int, evaluate: bool) -> Session:
     try:
         return anyio.run(
-            lambda: run_session(config, repeat=repeat, evaluate=evaluate)
+            lambda: run_session(
+                config,
+                repeat=repeat,
+                evaluate=evaluate,
+                progress=lambda message: err_console.print(message),
+            )
         )
     except INFRASTRUCTURE as exc:
         err_console.print(f"[bold red]infrastructure error[/]\n{exc}")
@@ -366,6 +394,10 @@ def _run(config: Config, *, repeat: int, evaluate: bool) -> Session:
             raise typer.Exit(ExitCode.INFRASTRUCTURE_ERROR) from exc
         err_console.print(f"[bold magenta]internal error[/]\n{_describe(exc)}")
         raise typer.Exit(ExitCode.INTERNAL_ERROR) from exc
+
+
+def _version_text() -> str:
+    return f"preflightkit {__version__} ({preflightkit_commit()})"
 
 
 if __name__ == "__main__":

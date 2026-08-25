@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import anyio
@@ -116,6 +117,32 @@ def test_desktop_target_uses_published_fallback_but_keeps_custom_bridge() -> Non
         assert container.container_ip == "172.30.0.3"
         assert body["HostConfig"]["NetworkMode"] == "pfk-run"
         assert "8000/tcp" in body["HostConfig"]["PortBindings"]
+
+    anyio.run(scenario)
+
+
+def test_missing_image_is_pulled_with_progress(monkeypatch) -> None:
+    async def scenario() -> None:
+        runtime = DockerRuntime.__new__(DockerRuntime)
+        messages: list[str] = []
+        runtime._progress = messages.append
+
+        async def absent(_image: str) -> bool:
+            return False
+
+        async def pull(command: list[str], *, check: bool):
+            assert command == ["docker", "pull", "python:3.12-slim"]
+            assert check is False
+            return SimpleNamespace(returncode=0, stderr=b"")
+
+        runtime.image_exists = absent  # type: ignore[method-assign]
+        monkeypatch.setattr(anyio, "run_process", pull)
+
+        await runtime.ensure_image("python:3.12-slim", purpose="probe")
+
+        assert messages == [
+            "pulling probe image (~50MB, once): python:3.12-slim"
+        ]
 
     anyio.run(scenario)
 

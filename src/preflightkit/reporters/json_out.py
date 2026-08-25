@@ -67,6 +67,13 @@ def build(session: Session, version: str) -> dict[str, Any]:
         },
         "repeats": len(session.runs),
         "duration_ms": sum(r.duration_ms for r in session.runs),
+        "phase_durations_ms": {
+            phase: round(
+                sum(run.report.phase_durations_ms.get(phase, 0.0) for run in session.runs),
+                3,
+            )
+            for phase in last.report.phase_durations_ms
+        },
         "environment": _environment(last.report),
         "baseline": _baseline(last.report),
         "readiness_baseline": (
@@ -160,6 +167,10 @@ def _run_summary(run: RunOutcome, redactor: Redactor) -> dict[str, Any]:
     report = run.report
     return {
         "duration_ms": run.duration_ms,
+        "phase_durations_ms": {
+            phase: round(duration, 3)
+            for phase, duration in report.phase_durations_ms.items()
+        },
         "container_start_overhead_ms": report.container_start_overhead_ms,
         "startup_resolution_ms": report.startup_resolution_ms,
         "startup_duration_ms": report.startup_duration_ms,

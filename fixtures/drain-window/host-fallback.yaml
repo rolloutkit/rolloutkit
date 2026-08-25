@@ -8,7 +8,9 @@ target:
     EXIT_SECONDS: "0.3"
 
 probe:
-  image: preflightkit-probe-intentionally-missing:never
+  # A cached scratch image cannot boot the Python controller. This deliberately
+  # exercises host fallback without depending on registry availability.
+  image: pfk-go-nosignal
 
 deployment:
   termination_grace_period: 30s

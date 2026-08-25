@@ -56,11 +56,12 @@ fixtures:
       SP005: {status: PASS, branch: all_completed}
 
   - name: startup-within-resolution
-    image: pfk-fixture-good
+    image: pfk-fixture-stdlib
     config: good-fastapi-prestop/startup-within-resolution.yaml
     description: >
-      Docker Desktop startup overhead is wider than the small nominal readiness
-      budget overrun, so SP001 records a pass inside measured resolution.
+      A minimal stdlib listener becomes ready after the nominal one-millisecond
+      budget but inside the run's measured Docker startup resolution. Keeping
+      framework import time out makes this timing branch stable across runners.
     expect:
       SP001: {status: PASS, branch: within_resolution}
 
@@ -421,7 +422,8 @@ fixtures:
     config: drain-window/prestop-near-deadline.yaml
     description: >
       preStop makes SP004 listener timing not applicable even when T4 is near the
-      shutdown budget. SP006 remains responsible for the deadline margin.
+      shutdown budget. A 25s exit inside a 30s budget leaves a wide, stable
+      16.7% thin margin; SP006 remains responsible for that deadline margin.
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}

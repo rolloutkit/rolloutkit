@@ -1,6 +1,9 @@
 version: 1
 target:
-  image: pfk-fixture-good
+  # Keep this timing branch on the smallest server fixture. Framework import
+  # time under a loaded runner can be wider than Docker's measured startup
+  # resolution and turns this into an unrelated application-startup test.
+  image: pfk-fixture-stdlib
   port: 8000
 deployment:
   termination_grace_period: 30s
@@ -8,5 +11,5 @@ deployment:
 probes:
   readiness: {path: /ready, expected_status: 200}
 contracts:
-  startup: {budget: 200ms}
+  startup: {budget: 1ms}
   inflight: null

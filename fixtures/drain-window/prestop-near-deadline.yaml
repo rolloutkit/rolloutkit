@@ -2,9 +2,11 @@ version: 1
 target:
   image: pfk-fixture-drain-window
   port: 8000
-  env: {DRAIN_SECONDS: "0", EXIT_SECONDS: "1.7"}
+  # A wide absolute window keeps the intended 16.7% margin clear of daemon
+  # event jitter on both Docker Desktop and loaded native-Linux runners.
+  env: {DRAIN_SECONDS: "0", EXIT_SECONDS: "25"}
 deployment:
-  termination_grace_period: 2100ms
+  termination_grace_period: 30s
   drain: {strategy: prestop}
 probes:
   readiness: {path: /ready, expected_status: 200}

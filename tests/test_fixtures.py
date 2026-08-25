@@ -151,7 +151,9 @@ def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
                 "body_head_bytes",
             } <= sample.keys()
 
-    statuses = {e["status"] for e in entry["expect"].values()}
+    # Exit gating applies to the whole report, including contracts this row is
+    # not using to cover a matrix branch.
+    statuses = {result["status"] for result in results.values()}
     blocking = BLOCKING if platform.system() == "Linux" else {"FAIL", "ERROR"}
     expected_exit = 1 if blocking & statuses else 0
     assert run.returncode == expected_exit

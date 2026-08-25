@@ -459,7 +459,9 @@ fixtures:
     description: >
       A one-millisecond shutdown budget is below the measured Docker teardown
       floor on every supported runtime, so timing contracts stay inconclusive.
+      SP003 is intentionally not asserted here: at a one-millisecond deadline,
+      whether the readiness watcher records a reaction before SIGKILL is below
+      the very host resolution this row exists to expose.
     expect:
-      SP003: {status: FAIL, branch: killed}
       SP004: {status: INCONCLUSIVE, branch: budget_below_teardown_floor}
       SP006: {status: INCONCLUSIVE, branch: budget_below_teardown_floor}

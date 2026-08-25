@@ -267,7 +267,9 @@ def test_dependency_alias_resolves_on_the_runtime_created_bridge() -> None:
                     ContainerSpec(
                         image="busybox:latest",
                         port=None,
-                        command=["sh", "-c", "nslookup db; sleep 1"],
+                        # A trailing dot prevents cloud-host search domains from
+                        # rewriting the network alias into an unrelated FQDN.
+                        command=["sh", "-c", "nslookup db. 127.0.0.11; sleep 1"],
                         network_name=network.name,
                     )
                 )

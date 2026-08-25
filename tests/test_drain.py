@@ -91,9 +91,17 @@ def test_in_app_readiness_never_changed_warns() -> None:
     result = _result(_report(DrainStrategy.IN_APP, readiness=None))
     assert (result.status, result.branch) == (
         Status.WARN,
-        "in_app_readiness_never",
+        "in_app_readiness_not_signaled",
     )
     assert result.actual["readiness_drop_mode"] == "never"
+
+
+def test_in_app_readiness_becoming_unreachable_is_not_a_drain_signal() -> None:
+    result = _result(_report(DrainStrategy.IN_APP, readiness="unreachable"))
+    assert (result.status, result.branch) == (
+        Status.WARN,
+        "in_app_readiness_not_signaled",
+    )
 
 
 def test_prestop_accept_window_is_evidence_not_a_failure() -> None:

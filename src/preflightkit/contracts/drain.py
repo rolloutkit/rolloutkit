@@ -37,7 +37,7 @@ class DrainWindowContract:
         "in_app_window_below_probe_resolution": Status.INCONCLUSIVE,
         "accept_then_reset": Status.FAIL,
         "in_app_listener_closed_early": Status.FAIL,
-        "in_app_readiness_never": Status.WARN,
+        "in_app_readiness_not_signaled": Status.WARN,
         "in_app_thin_margin": Status.WARN,
         "in_app_covered": Status.PASS,
         "prestop_not_applicable": Status.PASS,
@@ -129,13 +129,14 @@ class DrainWindowContract:
                 "in_app_listener_closed_early",
             )
 
-        if report.readiness_drop_observation == "never":
+        if report.readiness_drop_observation != "status_change":
+            observation = report.readiness_drop_observation
             return result(
                 Status.WARN,
                 f"listener covered the {required}ms in-app window, but readiness "
-                "never changed; load balancers outside Kubernetes cannot observe "
-                "the drain",
-                "in_app_readiness_never",
+                f"did not publish a status change ({observation}); load balancers "
+                "outside Kubernetes cannot observe the drain",
+                "in_app_readiness_not_signaled",
             )
 
         reserve = measured - required

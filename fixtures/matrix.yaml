@@ -366,7 +366,7 @@ fixtures:
       The listener covers the declared in-app window, but readiness remains 200
       throughout shutdown, so external routers never see a drain signal.
     expect:
-      SP004: {status: WARN, branch: in_app_readiness_never}
+      SP004: {status: WARN, branch: in_app_readiness_not_signaled}
 
   - name: no-drain-declared
     image: pfk-fixture-drain-window
@@ -460,6 +460,6 @@ fixtures:
       A one-millisecond shutdown budget is below the measured Docker teardown
       floor on every supported runtime, so timing contracts stay inconclusive.
     expect:
-      SP003: {status: FAIL, branch: shutdown_not_started}
+      SP003: {status: FAIL, branch: killed}
       SP004: {status: INCONCLUSIVE, branch: budget_below_teardown_floor}
       SP006: {status: INCONCLUSIVE, branch: budget_below_teardown_floor}

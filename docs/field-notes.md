@@ -7,9 +7,13 @@ M2 about whether the model holds up.
 For each image: how long it took to reach a measurable state, what was missing,
 which config field turned out to be necessary.
 
+Historical sections that predate JSON provenance are marked with
+`preflightkit commit: unknown (pre-provenance)`. New measurements must name the
+exact harness commit in their section heading.
+
 ---
 
-## service-a (2026-08-21)
+## service-a (2026-08-21; preflightkit commit: unknown, pre-provenance)
 
 FastAPI behind `gunicorn -k uvicorn.workers.UvicornWorker --workers 4`,
 `--graceful-timeout 30`. The application uses several external dependencies.
@@ -83,7 +87,7 @@ With SP005 configured, it might.
 
 ---
 
-## service-a, second session (2026-08-21)
+## service-a, second session (2026-08-21; preflightkit commit: unknown, pre-provenance)
 
 The first session left SP005 unmeasured. This one measured it, and in doing so
 answered the "assumes a slow endpoint" problem and turned up three reporting
@@ -109,6 +113,11 @@ so concurrency does not queue — it fans out.
 What worked was to stop trying to lengthen the request and instead shorten the
 window: `sigterm_after: 30ms` against a ~50ms request. 200/200 in flight, 200/200
 completed.
+
+**Reliability note (2026-08-25):** this exact 200/200 count was measured before
+the harness waited for an in-flight request to reach the socket. It is an
+unversioned, pre-fix measurement and is unreliable; it is retained here rather
+than silently replaced. The verdict was rechecked below.
 
 So the limitation recorded last time is narrower than it looked. SP005 does not
 need a slow endpoint; it needs `sigterm_after` to land inside the request. The
@@ -219,7 +228,7 @@ and the tool would report a clean FAIL to CI on most days.
 
 ---
 
-## Fixture matrix, run against real containers (2026-08-21)
+## Fixture matrix, real containers (2026-08-21; preflightkit commit: unknown, pre-provenance)
 
 Nine rows, five images, every declared verdict branch of every contract either
 covered by a fixture or listed with a reason it cannot be reached — and
@@ -274,7 +283,7 @@ Two fixtures now, because they are different findings:
 
 ---
 
-## go-http: nosignal / graceful (2026-08-21)
+## go-http: nosignal / graceful (2026-08-21; preflightkit commit: unknown, pre-provenance)
 
 Two purpose-built Go fixtures, not images found in the wild: identical
 `net/http` servers on `:8000` (`GET /ready` → 200, `GET /work` → 50ms then 200),
@@ -425,7 +434,7 @@ rather than inventing a story about a signal nobody sent.
 
 ---
 
-## SP003 redesigned, and defect 8 diagnosed (2026-08-22)
+## SP003 redesign and defect 8 (2026-08-22; preflightkit commit: unknown, pre-provenance)
 
 Not a new image. This is the session where defects 7 and 8 from the go-http run
 were fixed, and the rule was that neither fix would be designed before the thing
@@ -546,7 +555,7 @@ parts that were being asserted rather than measured.
 
 ---
 
-## service-b (2026-08-22)
+## service-b (2026-08-22; preflightkit commit: unknown, pre-provenance)
 
 Django 5.0.6 behind `gunicorn core.wsgi:application --workers 2 --timeout 300`.
 No `-k`, so the **sync** worker class: two requests are served at a time and
@@ -582,6 +591,11 @@ The image was run twice. The only difference is one word — `exec` before
 |---|---|---|---|
 | as shipped | **FAIL** signal_discarded | **PASS** 56/56 | **FAIL** SIGKILL at 30s |
 | `exec` added | **PASS** clean_exit, 336ms | **FAIL** 4/60 | **PASS** 336ms |
+
+**Reliability note (2026-08-25):** the `exec` row's exact SP005 count was
+measured before the harness waited for an in-flight request to reach the
+socket. It is an unversioned, pre-fix measurement and is unreliable; it is
+retained here rather than deleted. The verdict was rechecked below.
 
 **Adding `exec` turned a passing in-flight contract into a failing one.** Not
 because the fix is wrong — it is the correct fix — but because the passing
@@ -784,10 +798,11 @@ All ten integration rows matched their declared status and branch:
   `in_app_window_below_probe_resolution` INCONCLUSIVE.
 
 Every terminal refusal streak was classified as `connection_refused`; the RST
-fixture was the only source of `accept_then_reset`. The readiness-never WARN is
-held by a deterministic run-report fixture: forcing a real process to disappear
-while probes remain continuously accepted can itself reset the in-progress
-probe, in which case the universal RST failure correctly takes precedence.
+fixture was the only source of `accept_then_reset`. The readiness warning now
+names the observable property: only an explicit readiness status change is a
+drain signal. A readiness endpoint that stays healthy until it becomes
+unreachable follows the same `in_app_readiness_not_signaled` WARN branch; the
+process-exit race no longer changes the verdict.
 
 The same 1.8s drain fixture was also rerun on Docker Desktop. SP004 returned
 `INCONCLUSIVE / port_proxy_likely`. Its evidence retained an
@@ -943,3 +958,45 @@ that per-run resolution as `PASS / within_resolution`; only an overrun larger
 than the measured resolution reaches `WARN / over_budget`. JSON includes the
 field both in SP001 actual values and every run summary, and the terminal labels
 the value as startup resolution.
+
+---
+
+## SP005 socket-race rerun (2026-08-25; preflightkit commit: 768ce9fb565b91a494334ae5e01cf371790e2b76)
+
+The three suspect SP005 measurements were repeated three times each after the
+harness began waiting for at least one request to reach its socket before
+sending SIGTERM. All runs used native Linux 6.8.0-134-generic and Docker
+29.6.1/amd64. Traffic used the target's private container address;
+`port_proxy_likely` was false.
+
+service-b was built from source commit
+`efa24f341b5806915782ff9a360b70480e3bdebf` with the `exec gunicorn`
+counterfactual. service-a used the same anonymized image snapshot as the prior
+field run and fresh isolated Postgres, Redis, and MinIO dependencies. The Go
+graceful fixture was built from the preflightkit commit named in this heading.
+
+| Target | Run | SP005 | Completed / in flight at T0 | Issued | Baseline p50 | Jitter |
+|---|---:|---|---:|---:|---:|---:|
+| service-a, uvicorn workers | 1 | PASS / `all_completed` | 200/200 | 200 | 3012.646ms | 4.367ms |
+| service-a, uvicorn workers | 2 | PASS / `all_completed` | 94/94 | 200 | 1186.456ms | 1.765ms |
+| service-a, uvicorn workers | 3 | PASS / `all_completed` | 181/181 | 200 | 1960.554ms | 1.856ms |
+| service-b, sync workers + `exec` | 1 | FAIL / `requests_destroyed` | 5/89 | 100 | 503.437ms | 2.198ms |
+| service-b, sync workers + `exec` | 2 | FAIL / `requests_destroyed` | 3/93 | 100 | 858.215ms | 1.612ms |
+| service-b, sync workers + `exec` | 3 | FAIL / `requests_destroyed` | 4/82 | 100 | 327.723ms | 2.566ms |
+| Go graceful | 1 | PASS / `all_completed` | 197/197 | 200 | 66.803ms | 1.839ms |
+| Go graceful | 2 | PASS / `all_completed` | 121/121 | 200 | 71.359ms | 2.360ms |
+| Go graceful | 3 | PASS / `all_completed` | 154/154 | 200 | 77.139ms | 2.448ms |
+
+The verdicts did not change: service-a and Go were 3/3 PASS, and service-b was
+3/3 FAIL. The exact populations did change. Therefore the race did not affect
+the three qualitative findings, but it did affect which requests were honestly
+counted as in flight. The old service-a 200/200, service-b 4/60, and unversioned
+Go 200/200 stress readings are measurements from before the harness fix and are
+unreliable as exact counts. They remain in the historical record with that
+label.
+
+The new denominator is intentionally not the configured concurrency. `issued`
+records how many requests the harness launched; `in_flight_at_sigterm` records
+only requests that had reached the socket and were still open at T0. Waiting for
+one socket write removes the original race without pretending all concurrent
+tasks crossed that boundary simultaneously.

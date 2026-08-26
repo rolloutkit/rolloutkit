@@ -1,0 +1,69 @@
+name: Measurement set
+
+# Manual only. This runs containers to take timing readings, not to check
+# anything, so it has no business on a push: a red run here means the runner was
+# busy, which is a fact about the runner and not about the commit.
+#
+# The runner is the third host in the set. It matters more than a spare laptop
+# would: macOS runs Docker inside a virtual machine, and the readings taken
+# there are dominated by how warm that VM is. A GitHub runner has a native
+# Linux daemon and no VM at all, so it is the control for that finding rather
+# than another sample of it.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Runs per batch"
+        required: false
+        default: "8"
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Measurement set
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Describe the runner
+        run: |
+          echo "kernel:  $(uname -srm)"
+          echo "cpus:    $(nproc)"
+          echo "memory:  $(free -m | awk '/^Mem:/{print $2 " MB"}')"
+          docker version --format 'docker:  {{.Server.Version}} on {{.Server.Os}}/{{.Server.Arch}}'
+          cat /proc/loadavg
+
+      - name: Cache the runtime probe image
+        run: |
+          docker pull busybox:latest
+          docker pull python:3.12-slim
+
+      - name: Build the fixture images
+        run: uv run python scripts/build_fixture_images.py
+
+      - name: Run the measurement set
+        env:
+          PREFLIGHTKIT_COMMIT: ${{ github.sha }}
+        run: scripts/measure-set.sh -n "${{ inputs.runs }}"
+
+      - name: Upload the readings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: measurements
+          path: measurements/
+          if-no-files-found: error

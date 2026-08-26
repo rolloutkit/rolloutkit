@@ -231,6 +231,26 @@ def test_allow_inconclusive_is_an_explicit_gating_escape_hatch(
 def test_configless_one_line_cli_and_required_skip_gate(
     built_images: None, tmp_path: Path
 ) -> None:
+    """The zero-config path, without betting on which side of the fallback it lands.
+
+    `--ready-url` and no in-flight path is the default experience, and it makes
+    SP005 fall back to the readiness endpoint. Whether that fallback resolves is
+    decided by the host's jitter floor rather than by the image: three runs of
+    one fixture on this laptop, minutes apart, measured ratios of 4.9, 16.3 and
+    4.2 against a required 10.
+
+    This test used to assert the INCONCLUSIVE side of that, which made it the
+    same coin toss the `readiness-fallback-fast` matrix row was removed for —
+    and it is the second place the toss was hiding, because
+    `tests/test_coverage.py` can only see rows in `fixtures/matrix.yaml`.
+
+    What does not depend on the host is that the report agrees with its own
+    measurement. Every assertion below is checked against the ratio that the
+    same invocation recorded, so both outcomes are covered and neither is
+    required. The wording of the declining summary belongs to
+    `tests/test_preconditions.py::test_readiness_fallback_below_jitter_resolution_is_inconclusive`,
+    which hands the decision known numbers instead of hoping for them.
+    """
     command = [
         str(_cli()),
         "test",
@@ -254,9 +274,13 @@ def test_configless_one_line_cli_and_required_skip_gate(
     assert "SP004 drain-window" in report_only.stdout
     assert "WARN" in report_only.stdout
     assert "SP005 inflight-completion" in report_only.stdout
-    assert "readiness p50" in report_only.stdout
-    assert "jitter" in report_only.stdout
-    assert "--inflight-path" in report_only.stdout
+    if "--inflight-path" in report_only.stdout:
+        # It declined. The summary has to say what it measured and what to do,
+        # or the user is left holding a bare INCONCLUSIVE.
+        assert "readiness p50" in report_only.stdout
+        assert "jitter" in report_only.stdout
+    else:
+        assert "in-flight requests completed" in report_only.stdout
 
     gated = subprocess.run(
         [*command, "--fail-on", "error", "--format", "json"],
@@ -265,7 +289,6 @@ def test_configless_one_line_cli_and_required_skip_gate(
         text=True,
         timeout=120,
     )
-    assert gated.returncode == 1, gated.stderr
     document = json.loads(gated.stdout)
     assert document["profile"] == {
         "platform": "kubernetes",
@@ -274,8 +297,34 @@ def test_configless_one_line_cli_and_required_skip_gate(
         "shutdown_budget_ms": 30_000,
         "drain_strategy": "none",
     }
-    assert document["required_unmeasured"]["contracts"][0]["id"] == "SP005"
-    assert document["required_unmeasured"]["contracts"][0]["status"] == "INCONCLUSIVE"
+
+    sp005 = next(c for c in document["contracts"] if c["id"] == "SP005")
+    unmeasured = document["required_unmeasured"]["contracts"]
+    if sp005["status"] == "INCONCLUSIVE":
+        assert sp005["branch"] == "readiness_fallback_below_resolution"
+        # The verdict has to follow the numbers it published, not merely be
+        # allowed by them.
+        precondition = sp005["evidence"]["precondition"]
+        assert precondition["ratio"] < precondition["minimum_ratio"], (
+            "SP005 declined the fallback while its own evidence says the window "
+            f"was resolvable: {precondition}"
+        )
+        assert [c["id"] for c in unmeasured] == ["SP005"]
+        assert unmeasured[0]["status"] == "INCONCLUSIVE"
+        # A required contract that could not be measured blocks the pipeline.
+        assert gated.returncode == 1, gated.stderr
+    else:
+        assert sp005["branch"] == "all_completed"
+        window = sp005["evidence"]["window"]
+        assert window["inflight_target"] == "readiness_fallback"
+        ratio = window["readiness_jitter_ratio"]
+        assert ratio is not None and ratio >= MIN_JITTER_RATIO, (
+            "SP005 counted a fallback window without the ratio that permits it: "
+            f"{window}"
+        )
+        assert not unmeasured, unmeasured
+        # SP004 is a WARN under drain: none, and WARN does not block.
+        assert gated.returncode == 0, gated.stderr
 
     allowed = subprocess.run(
         [
@@ -294,13 +343,21 @@ def test_configless_one_line_cli_and_required_skip_gate(
     assert allowed.returncode == 0, allowed.stderr
     suite = ET.fromstring(allowed.stdout)
     assert suite.attrib["tests"] == "6"
-    skipped = suite.findall("testcase/skipped")
-    assert len(skipped) == 1
-    sp005 = next(
+    sp005_case = next(
         case for case in suite.findall("testcase") if case.attrib["name"].startswith("SP005")
     )
-    assert sp005.find("skipped") is not None
-    assert "readiness p50" in sp005.find("skipped").attrib["message"]
+    skipped = [
+        case.attrib["name"]
+        for case in suite.findall("testcase")
+        if case.find("skipped") is not None
+    ]
+    # `--allow-inconclusive` turns an unmeasured required contract into a skip
+    # instead of a failure. Whether this host produced one is the host's call;
+    # that SP005 is the only contract here that can produce one is not.
+    assert skipped in ([], [sp005_case.attrib["name"]]), skipped
+    skip = sp005_case.find("skipped")
+    if skip is not None:
+        assert "readiness p50" in skip.attrib["message"]
 
     measured = subprocess.run(
         [str(_cli()), "measure", *command[2:]],

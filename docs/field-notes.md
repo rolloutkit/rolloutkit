@@ -1613,12 +1613,18 @@ The branch is entered when
 
 and `startup_resolution_ms` is `container_start_overhead_ms` plus one 100ms
 readiness poll. That makes the admissible window exactly as wide as the
-resolution, wherever the budget is put. Moving `contracts.startup.budget` slides
-the window; it cannot widen it, because the width is a property of the host's
-Docker daemon and this harness's poll interval, not of anything the fixture
-declares. The only lever that widens the margin is a faster image, and the row
-already runs on `pfk-fixture-stdlib`, the smallest server fixture in the
-repository. The knob is turned as far as it goes.
+resolution, wherever the budget is put.
+
+Neither knob the fixture has can widen it. Moving `contracts.startup.budget`
+slides the window; the width is a property of the host's Docker daemon and this
+harness's poll interval, not of anything the fixture declares. A faster image
+does not widen it either — it only moves `startup_duration_ms` within the same
+window, and toward the lower edge. What the image knob does have is a stop: the
+row already runs on `pfk-fixture-stdlib`, `python:3.12-slim` with one stdlib
+module and no framework import, which is as fast as anything in this repository
+that is still a Python server. If a host pushes readiness past
+`budget + resolution`, the answer that worked in `68c24bd` — pick a faster image
+— is not available a second time.
 
 Three runs today, `Darwin 25.5.0 / docker 29.7.2 / 11cpu`, host load average
 43.5-49.6:
@@ -1642,17 +1648,25 @@ failure on a machine that was not the previous machine.
 **Prediction.** This branch fails again on a host whose timing differs from this
 laptop's, in one of two directions:
 
-- On a fast host — native Linux, low daemon create/start overhead, quick
-  interpreter start — `startup_duration_ms` falls to or below the 100ms budget.
-  The verdict stays PASS but the branch becomes `within_budget`, and
-  `fixtures/matrix.yaml` fails on the branch rather than the status. This is the
-  more likely direction: the fixture is deliberately the fastest image here, and
-  the budget is the only thing keeping it above the line.
+- On a fast host — native Linux, no virtual machine between the CLI and the
+  daemon — `startup_duration_ms` falls to or below the 100ms budget. The verdict
+  stays PASS but the branch becomes `within_budget`, and `fixtures/matrix.yaml`
+  fails on the branch rather than on the status. Readiness has to lose only
+  61-72ms of the 161-172ms it takes here for this to happen, and the fixture is
+  already the fastest image available, so the only remaining response is to move
+  the budget again.
 - On a loaded runner where interpreter startup inflates more than the daemon's
   create/start round trip does, the overrun outgrows the resolution and the
   branch becomes `over_budget` (WARN). Today's overrun uses a third of the
   available resolution, so this needs roughly a threefold divergence between the
   two costs, not merely a slow machine.
+
+Which direction arrives first is not predictable from here, and the earlier
+Linux measurements in this file argue against assuming the obvious one: that
+host's teardown floor was 237-250ms against this laptop's 50.73ms, so "native
+Linux" did not mean "every daemon operation is cheaper". What is predictable is
+that one of them arrives, because the row's margin is a host quantity that no
+fixture setting controls.
 
 **What a recurrence means.** Not another adjustment. `within_resolution` is a
 verdict about the target whose *boundary* is a host measurement, which is
@@ -1662,6 +1676,41 @@ because the image is genuinely an input, and it is not adequately served by
 decided by the machine underneath it. Two rows now show this shape. A third
 would make it a category, and the answer would be to name the third type and
 give it its own rule — not to move the budget a fifth time.
+
+### The same toss was also hiding in a hand-written test
+
+Running the Docker matrix after the classification work turned up a second
+failure of the same kind, in a test the classification could not have covered.
+`test_configless_one_line_cli_and_required_skip_gate` exercises the zero-config
+one-liner — `test IMAGE --port PORT --ready-url PATH` — and asserted, among a
+dozen host-independent facts about the CLI, that SP005 came back INCONCLUSIVE
+with the fallback's explanatory summary. That assertion is the removed
+`readiness-fallback-fast` row written a second time, in Python instead of YAML.
+
+Three clean-directory runs of that exact command today measured ratios of 2.85,
+4.07 and 6.61 — all declining. The matrix run reached `all_completed`, which the
+fallback path can only reach above 10. The test failed on the run that resolved,
+which is the one outcome it had no way to express.
+
+`tests/test_coverage.py` did not and could not see this. Its gate reads
+`fixtures/matrix.yaml`, so a branch that is classified `decision_unit` is kept
+out of the matrix — but nothing stops a hand-written live test from asserting
+the same decision through a real container. The classification closed the front
+door.
+
+The test now derives its expectations from the ratio the same invocation
+recorded, and asserts both outcomes: declining publishes the summary and blocks
+under `--fail-on error`; resolving publishes `all_completed` with a ratio that
+permits it and does not block. What it no longer does is require a particular
+side. The wording of the declining summary stays where it can be tested with
+known numbers, in
+`tests/test_preconditions.py::test_readiness_fallback_below_jitter_resolution_is_inconclusive`.
+
+A gate that would have caught this is not obvious — it would have to notice that
+a live test's assertion depends on a `decision_unit` outcome, which is a
+statement about intent rather than about text. Recorded here as the second place
+this particular toss was hiding, and the third fixture in this file whose
+stability turned out to be a property of the machine rather than of the image.
 
 ### What is now recorded on every run
 
@@ -1689,10 +1738,14 @@ Each run in the JSON report carries a `resolution_calibration` block next to its
 The teardown floor is the other half and was already per-run in
 `teardown_calibration`: samples, median, sample stddev, and the threshold.
 
-The three runs in the table above landed on both sides of the constant, on one
-machine, minutes apart: ratios 4.91, 16.34 and 4.20 against a required 10. The
+The three runs in the table above are the first readings taken this way, and
+they make the case for taking them unconditionally: that fixture sets
+`contracts.inflight: null`, so SP005 never ran and no verdict depended on the
+ratio — and the ratio still landed on both sides of the constant, on one
+machine, minutes apart. 4.91, then 16.34, then 4.20, against a required 10. The
 readiness p50 barely moved across them (4.75-6.18ms); the jitter floor moved
-3.4-fold (0.37-1.26ms). The unstable term is the one that belongs to the host.
+3.4-fold (0.37-1.26ms). The unstable term is the one that belongs to the host,
+and three runs that were not about SP005 at all measured it anyway.
 
 There is already one measured cross-host figure of the same kind in this file:
 the teardown floor was 237-250ms on `Linux 6.8.0-134-generic` and 50.73ms on

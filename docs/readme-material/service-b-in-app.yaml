@@ -1,0 +1,58 @@
+# preflightkit — service-b, judged under the in_app drain profile.
+#
+# Django 5.0.6 behind `gunicorn --workers 2` with the *sync* worker class. Two
+# workers means two requests are served at a time and everything else waits in
+# the listen backlog, so concurrency here produces a genuine queue rather than
+# the artificial one a slow endpoint fakes.
+#
+# The image runs standalone: the database engine defaults to sqlite, and what is
+# being measured is gunicorn's shutdown path and PID 1's signal disposition.
+
+version: 1
+
+target:
+  image: service-b:latest
+  port: 8000
+  env:
+    # The container is reached by its container name on the run's own
+    # network, which Django's host check rejects unless it is told about it.
+    ALLOWED_HOSTS: "*"
+  command:
+    - /bin/sh
+    - -c
+    - python manage.py migrate --noinput && mkdir -p static staticfiles media && python manage.py collectstatic --noinput --clear && exec gunicorn core.wsgi:application --bind :8000 --workers 2 --timeout 300 --log-level info
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+  drain:
+    strategy: in_app
+    in_app_window: 5s
+
+probes:
+  readiness:
+    # Liveness-only by design: touches neither the database nor the cache, so it
+    # answers "is gunicorn serving" and nothing else.
+    path: /healthz/
+    expected_status: 200
+
+contracts:
+  startup:
+    # migrate + collectstatic run before gunicorn binds; ~7s observed by hand.
+    budget: 60s
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      # Public, DB-backed, ~41ms unloaded.
+      path: /api/subjects/
+      # Not the unloaded latency: 100 requests behind 2 sync workers means the
+      # tail waits seconds, and that wait is the in-flight window.
+      expected_duration: 30s
+    concurrent: 100
+    sigterm_after: 300ms
+
+timeouts:
+  overall: 240s
+  startup: 120s
+  shutdown: 60s

@@ -1,0 +1,50 @@
+$ preflightkit test -c service-b-prestop.yaml
+starting the traffic probe
+starting the target and waiting for readiness: service-b:latest
+measuring the baseline: 25 requests plus keep-alive
+sending SIGTERM and observing the shutdown
+removing the containers and the network
+
+preflightkit 0.1.0   run pfk_TWYAIQ7DFU
+Target: service-b:latest
+Profile: kubernetes, grace 30s, preStop sleep 5s, drain prestop -> shutdown budget 25s
+
+STARTUP
+  startup resolution                          184ms
+  TCP :8000 open                              6.24s
+  GET /healthz/ -> 200                        6.66s
+  PID 1 signal disposition                    gunicorn, SIGTERM handler installed
+
+BASELINE (before the signal)
+  GET /api/subjects/ x25                      25/25 ok -> 200
+  request duration p50 / p90                  104ms / 154ms
+  sigterm_after (from config)                 300ms
+
+SHUTDOWN TIMELINE
+  T2  last new connection accepted            +-262ms (±50ms)
+
+CONTRACTS
+  SP001 startup                PASS   ready in 6.66s (budget 1m0s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0ms, max 93ms)
+  SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
+296ms
+  SP004 drain-window           PASS   not_applicable: preStop owns routing removal, so the 
+new-connection probe stops at T0 and listener timing is evidence only
+  SP005 inflight-completion    FAIL   4/54 completed, 50 destroyed
+        request #31 reset_before_response during awaiting_response +63ms
+        request #45 reset_before_response during awaiting_response +63ms
+        request #46 reset_before_response during awaiting_response +63ms
+        request #52 reset_before_response during awaiting_response +64ms
+        request #53 reset_before_response during awaiting_response +64ms
+        ... and 45 more destroyed requests (--format json lists every one)
+  SP006 shutdown-deadline      PASS   exited in 296ms of 25s
+
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 3.47 | probe sidecar | probe-path jitter 
+~0.2ms | teardown not_calibrated
+  Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
+sidecar, not to the nanosecond.
+  T4 is the daemon's own kill->die pair (296ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 303ms.
+
+Result: 1 FAIL
+report-only: exit 0. Use --fail-on error to block CI.

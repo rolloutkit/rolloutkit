@@ -1,0 +1,67 @@
+SP004 — drain-window
+Measures: Opens a fresh TCP connection to the target every 50ms and sends a real HTTP request on it,
+so the measurement is application accept rather than kernel backlog. Under in_app and none the 
+stream continues past T0 (SIGTERM) and records the last accepted connection, the resets after it, 
+and the resulting accept_window_ms; under prestop the stream stops at T0, because a real preStop 
+rollout has already removed the pod from routing before the signal is sent.
+Preconditions:
+  - in_app only — shutdown must visibly start; without an observed reaction there is no 
+application-owned drain transition to measure.
+  - in_app only — traffic must reach the container directly. A published port proxy accepts on the 
+application's behalf, so its listener timestamps describe the proxy, not the process.
+  - in_app only — in_app_window must exceed 20 probe intervals (1000ms at the 50ms default); a 
+smaller window cannot be separated from the probe's own resolution.
+  - Every strategy — a shutdown budget of 2s or less must exceed the measured teardown floor. Longer
+budgets skip calibration, because the floor cannot change their verdict.
+Verdicts (branch, by drain strategy):
+  prestop:
+    PASS         prestop_not_applicable
+      The platform hook owns routing removal, so post-T0 listener timing is not evidence about the  
+      application. accept_window_ms is still reported, as evidence only. This is the only branch    
+      prestop reaches.                                                                              
+  in_app:
+    PASS         in_app_covered
+      The listener kept accepting past the declared in_app_window with more than 20 percent reserve,
+      and readiness published a status change.                                                      
+    WARN         in_app_thin_margin
+      The listener covered the window, but the reserve is under 20 percent — close enough that      
+      ordinary host noise would breach it.                                                          
+    WARN         in_app_readiness_not_signaled
+      The listener covered the window, but readiness never published a status change, so load       
+      balancers outside Kubernetes have nothing to observe the drain by.                            
+    FAIL         in_app_listener_closed_early
+      The listener stopped accepting before the declared window ended, while routing is still       
+      expected to deliver new connections.                                                          
+    FAIL         accept_then_reset
+      A connection opened after T0 completed its handshake and was then reset with no response at   
+      all. Worse than a refusal: the caller already believed it was connected. Overrides the window 
+      verdict.                                                                                      
+    INCONCLUSIVE shutdown_never_started
+      No shutdown reaction was observed, so there is no drain transition to measure. See SP003      
+      first.                                                                                        
+    INCONCLUSIVE port_proxy_likely
+      Traffic went through a published-port proxy — the Docker Desktop host-fallback path — so      
+      listener timing describes the proxy. The unresolved candidate verdict is kept in evidence.    
+  none:
+    WARN         none_uncovered
+      No mechanism covers routing propagation, so connection loss is expected by declaration and    
+      listener behaviour cannot improve the verdict. This is the only branch none reaches.          
+  any strategy:
+    INCONCLUSIVE budget_below_teardown_floor
+      The shutdown budget is inside the measured teardown envelope, so no timing claim about this   
+      run can be separated from Docker's own teardown cost.                                         
+Why it matters: Endpoints removal is asynchronous: after SIGTERM the load balancer keeps opening new
+connections for as long as the propagation takes. If the listener has already closed, those arrive 
+at a closed or resetting socket and reach the caller as 502s and connection resets — during a deploy
+in which the process itself exited cleanly and every log looks normal.
+Drain strategies:
+  - prestop: the platform hook owns routing removal before SIGTERM; the probe stops at T0 and the 
+contract always passes as not_applicable.
+  - in_app: the application owns the gap. It must keep accepting for in_app_window after SIGTERM and
+publish a readiness change, then drain.
+  - none: nothing covers routing propagation, so SP004 warns regardless of what the listener does.
+First step after FAIL: Decide which strategy the deployment actually uses before reading the 
+numbers. For platform-owned draining add a preStop sleep that covers propagation; for 
+application-owned draining set --drain in_app and keep the listener and readiness open for the 
+declared window. accept_then_reset is different: the socket is being accepted and dropped, which is 
+usually a worker pool closing its listener while connections sit in the backlog.

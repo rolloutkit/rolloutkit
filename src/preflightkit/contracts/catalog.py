@@ -79,6 +79,14 @@ class ContractDoc:
     strategies: str
     strategy_notes: tuple[str, ...] = ()
     first_step: str = ""
+    #: The order the contract asks its branches in, worst first, for the runs
+    #: where more than one of them holds. Empty where the branches are mutually
+    #: exclusive and no run can satisfy two, which is most of them: an order
+    #: that cannot be observed is not worth publishing. Where it is not empty it
+    #: must equal the tuple the contract evaluates, and `tests/test_catalog.py`
+    #: fails if the two drift — a precedence documented here and implemented
+    #: somewhere else is worse than none, because a reader would trust it.
+    precedence: tuple[str, ...] = ()
 
     @property
     def strategy_dependent(self) -> bool:
@@ -392,6 +400,13 @@ CATALOG: dict[str, ContractDoc] = {
             "accept_then_reset is different: the socket is being accepted and "
             "dropped, which is usually a worker pool closing its listener while "
             "connections sit in the backlog."
+        ),
+        precedence=(
+            "accept_then_reset",
+            "in_app_listener_closed_early",
+            "in_app_readiness_not_signaled",
+            "in_app_thin_margin",
+            "in_app_covered",
         ),
     ),
     "SP005": ContractDoc(

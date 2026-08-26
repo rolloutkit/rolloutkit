@@ -369,6 +369,14 @@ def explain(
     else:
         console.print("Verdicts (branch):")
         _print_verdicts(doc.verdicts, indent="  ")
+    if doc.precedence:
+        console.print(
+            "Precedence — several of these hold on the same run, so they are "
+            "asked in this order and the first to answer is the verdict:"
+        )
+        for position, branch in enumerate(doc.precedence, start=1):
+            status = next(v.status for v in doc.verdicts if v.branch == branch)
+            console.print(f"  {position}. {branch} ({status})")
     console.print(f"Why it matters: {doc.why}")
     if doc.strategy_notes:
         console.print("Drain strategies:")

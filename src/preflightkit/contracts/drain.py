@@ -31,6 +31,29 @@ class DrainWindowContract:
         ACCEPT_WINDOW_MEASURED,
     )
 
+    #: The order the in_app clauses are asked in — and the only thing that
+    #: decides the verdict when more than one of them holds, which is the normal
+    #: case rather than the exception: a listener that closes early usually
+    #: resets something on the way out, and a target that never signals
+    #: readiness can do either while still failing to signal. Until this tuple
+    #: existed the answer was whichever `if` came first in the source, which is
+    #: an ordering nobody declared and no test could see reversed.
+    #:
+    #: Worst first, and worst means loss the caller could not have seen coming.
+    #: `accept_then_reset` is a connection the client already believed it had,
+    #: so it outranks a listener that closed early — a breach of a declared
+    #: window, but one that arrives as a refusal the caller can retry. Both
+    #: outrank the two advisories, which describe a drain that worked and could
+    #: be observed or spared more room. Reporting an advisory over either
+    #: failure would understate the run.
+    IN_APP_PRECEDENCE = (
+        "accept_then_reset",
+        "in_app_listener_closed_early",
+        "in_app_readiness_not_signaled",
+        "in_app_thin_margin",
+        "in_app_covered",
+    )
+
     BRANCHES = {
         "shutdown_never_started": Status.INCONCLUSIVE,
         "port_proxy_likely": Status.INCONCLUSIVE,
@@ -114,51 +137,70 @@ class DrainWindowContract:
                 "none_uncovered",
             )
 
-        resets = report.accept_then_reset
-        if resets:
-            first = report.offset_ms(resets[0].connected_ns)
-            return result(
-                Status.FAIL,
-                f"{len(resets)} connection(s) started after SIGTERM were reset "
-                f"without a response (first connected at +{(first or 0):.0f}ms)",
-                "accept_then_reset",
-            )
-
         required = report.config.deployment.drain.in_app_window
         measured = accept_window if accept_window is not None else float("-inf")
-        if measured < required:
-            shown = accept_window if accept_window is not None else 0.0
-            return result(
-                Status.FAIL,
-                f"listener closed {shown:.0f}ms after T0, but must remain open "
-                f"for {required}ms; the load balancer is still routing",
-                "in_app_listener_closed_early",
+
+        def accept_then_reset() -> tuple[Status, str] | None:
+            resets = report.accept_then_reset
+            if not resets:
+                return None
+            first = report.offset_ms(resets[0].connected_ns)
+            return Status.FAIL, (
+                f"{len(resets)} connection(s) started after SIGTERM were reset "
+                f"without a response (first connected at +{(first or 0):.0f}ms)"
             )
 
-        if report.readiness_drop_observation != "status_change":
+        def in_app_listener_closed_early() -> tuple[Status, str] | None:
+            if measured >= required:
+                return None
+            shown = accept_window if accept_window is not None else 0.0
+            return Status.FAIL, (
+                f"listener closed {shown:.0f}ms after T0, but must remain open "
+                f"for {required}ms; the load balancer is still routing"
+            )
+
+        def in_app_readiness_not_signaled() -> tuple[Status, str] | None:
             observation = report.readiness_drop_observation
-            return result(
-                Status.WARN,
+            if observation == "status_change":
+                return None
+            return Status.WARN, (
                 f"listener covered the {required}ms in-app window, but readiness "
                 f"did not publish a status change ({observation}); load balancers "
-                "outside Kubernetes cannot observe the drain",
-                "in_app_readiness_not_signaled",
+                "outside Kubernetes cannot observe the drain"
             )
 
-        reserve = measured - required
-        if reserve < required * _THIN_MARGIN_RATIO:
-            return result(
-                Status.WARN,
+        def in_app_thin_margin() -> tuple[Status, str] | None:
+            reserve = measured - required
+            if reserve >= required * _THIN_MARGIN_RATIO:
+                return None
+            return Status.WARN, (
                 f"listener covered the {required}ms in-app window with only "
-                f"{reserve:.0f}ms reserve",
-                "in_app_thin_margin",
+                f"{reserve:.0f}ms reserve"
             )
 
-        return result(
-            Status.PASS,
-            f"listener accepted new connections for {measured:.0f}ms after T0 "
-            f"(required {required}ms)",
-            "in_app_covered",
+        def in_app_covered() -> tuple[Status, str] | None:
+            return Status.PASS, (
+                f"listener accepted new connections for {measured:.0f}ms after T0 "
+                f"(required {required}ms)"
+            )
+
+        # Asked in the declared order, not in the order they are written. A
+        # clause answers for the runs it recognises and returns None for the
+        # rest; the last one answers unconditionally, so the loop always ends
+        # in a verdict.
+        clauses = {
+            "accept_then_reset": accept_then_reset,
+            "in_app_listener_closed_early": in_app_listener_closed_early,
+            "in_app_readiness_not_signaled": in_app_readiness_not_signaled,
+            "in_app_thin_margin": in_app_thin_margin,
+            "in_app_covered": in_app_covered,
+        }
+        for branch in self.IN_APP_PRECEDENCE:
+            verdict = clauses[branch]()
+            if verdict is not None:
+                return result(*verdict, branch)
+        raise AssertionError(  # pragma: no cover - in_app_covered always answers
+            "SP004 in_app precedence ended without a verdict"
         )
 
 

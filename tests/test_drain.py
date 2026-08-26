@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from rich.console import Console
 
 from preflightkit.config.models import Config, Deployment, Drain, DrainStrategy, Target
@@ -366,4 +367,98 @@ def test_sp004_budget_precondition_is_inconclusive() -> None:
     assert (result.status, result.branch) == (
         Status.INCONCLUSIVE,
         "budget_below_teardown_floor",
+    )
+
+
+#: One run per adjacent pair in `IN_APP_PRECEDENCE`, built so that both clauses
+#: of the pair answer it. That is the only way an order is observable at all: a
+#: precedence over clauses that never co-occur is decoration, and a precedence
+#: over clauses that do is the difference between reporting a lost connection
+#: and reporting a suggestion. Swapping any two neighbours in the contract's
+#: tuple turns one of these red.
+#:
+#: `in_app_covered` answers unconditionally — it is the tail the loop is
+#: guaranteed to reach — so the pair above it is pinned like every other.
+_PRECEDENCE_PAIRS = {
+    ("accept_then_reset", "in_app_listener_closed_early"): dict(
+        accept_ms=700, reset=True
+    ),
+    ("in_app_listener_closed_early", "in_app_readiness_not_signaled"): dict(
+        accept_ms=700, readiness=None
+    ),
+    ("in_app_readiness_not_signaled", "in_app_thin_margin"): dict(
+        accept_ms=1300, readiness=None
+    ),
+    ("in_app_thin_margin", "in_app_covered"): dict(accept_ms=1300),
+}
+
+
+@pytest.mark.parametrize(("pair", "kwargs"), sorted(_PRECEDENCE_PAIRS.items()))
+def test_the_higher_in_app_clause_answers_when_both_hold(
+    pair: tuple[str, str], kwargs: dict
+) -> None:
+    winner, loser = pair
+    result = _result(_report(DrainStrategy.IN_APP, **kwargs))
+    assert result.branch == winner, (
+        f"both {winner} and {loser} hold on this run; SP004 answered "
+        f"{result.branch}, which reverses the declared precedence"
+    )
+    assert result.status is DrainWindowContract.BRANCHES[winner]
+
+
+def test_every_step_of_the_declared_precedence_is_pinned() -> None:
+    """A tuple nobody tests is a comment that happens to be executable."""
+    order = DrainWindowContract.IN_APP_PRECEDENCE
+    adjacent = set(zip(order, order[1:], strict=False))
+    assert adjacent == set(_PRECEDENCE_PAIRS), (
+        "IN_APP_PRECEDENCE changed without a run that shows the new order: "
+        f"unpinned {sorted(adjacent - set(_PRECEDENCE_PAIRS))}, "
+        f"stale {sorted(set(_PRECEDENCE_PAIRS) - adjacent)}"
+    )
+
+
+def test_a_reset_outranks_an_unsignalled_readiness() -> None:
+    """The run this order was written for, and the one it is easiest to get wrong.
+
+    A target that never signals readiness while resetting a connection accepted
+    after T0 satisfies two clauses at once, and they disagree by two statuses.
+    `accept_then_reset` is a client that already believed it had a connection;
+    `in_app_readiness_not_signaled` is a drain that worked and could not be
+    watched. Reporting the advisory would call a lost connection a suggestion.
+    """
+    result = _result(_report(DrainStrategy.IN_APP, reset=True, readiness=None))
+    assert (result.status, result.branch) == (Status.FAIL, "accept_then_reset")
+    assert result.actual["accept_then_reset"] == 1
+    assert result.actual["readiness_drop_mode"] == "never"
+
+
+def test_the_precedence_names_every_in_app_verdict_exactly_once() -> None:
+    """The loop can only answer with a branch the tuple names."""
+    order = DrainWindowContract.IN_APP_PRECEDENCE
+    assert len(set(order)) == len(order), "a branch is listed twice"
+    in_app = {
+        branch
+        for branch, status in DrainWindowContract.BRANCHES.items()
+        if status is not Status.INCONCLUSIVE
+        and branch not in ("prestop_not_applicable", "none_uncovered")
+    }
+    assert set(order) == in_app, (
+        "an in_app branch outside the precedence is unreachable: "
+        f"{sorted(in_app - set(order))}"
+    )
+
+
+def test_the_precedence_never_puts_an_advisory_above_a_failure() -> None:
+    """Worst first. The order may be argued within a status, never across one."""
+    severity = {Status.FAIL: 0, Status.WARN: 1, Status.PASS: 2}
+    ranks = [
+        severity[DrainWindowContract.BRANCHES[branch]]
+        for branch in DrainWindowContract.IN_APP_PRECEDENCE
+    ]
+    assert ranks == sorted(ranks), (
+        "IN_APP_PRECEDENCE asks a lighter status before a heavier one: "
+        + ", ".join(
+            f"{branch} ({DrainWindowContract.BRANCHES[branch]})"
+            for branch in DrainWindowContract.IN_APP_PRECEDENCE
+        )
     )

@@ -13,6 +13,7 @@ from __future__ import annotations
 from preflightkit.config.models import DrainStrategy
 from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.catalog import ANY_STRATEGY, CATALOG
+from preflightkit.contracts.drain import DrainWindowContract
 
 
 def test_the_catalog_documents_every_contract() -> None:
@@ -112,4 +113,45 @@ def test_every_contract_answers_the_five_questions() -> None:
         assert len(doc.preconditions) >= len(contract.PRECONDITIONS), (
             f"{doc.id} declares {len(contract.PRECONDITIONS)} preconditions but "
             f"documents {len(doc.preconditions)}"
+        )
+
+
+def test_sp004_publishes_the_order_it_evaluates() -> None:
+    """A published order that is not the evaluated order is worse than none.
+
+    A reader who opens `explain SP004` to find out which of two verdicts a run
+    will report has no second place to check. If the catalogue and the contract
+    can drift, the answer they get is confident and wrong — the same failure
+    `test_every_branch_is_documented` exists to prevent, one level up from the
+    branch names.
+    """
+    assert CATALOG["SP004"].precedence == DrainWindowContract.IN_APP_PRECEDENCE
+
+
+def test_sp004_is_the_only_contract_publishing_a_precedence() -> None:
+    """Agreement is checked per contract, because the tuple is named per contract.
+
+    Nothing here can verify a precedence generically: SP004 declares
+    `IN_APP_PRECEDENCE` because its order belongs to one strategy. A second
+    contract that publishes an order needs its own agreement test, and this is
+    what fails until someone writes it.
+    """
+    publishing = {doc.id for doc in CATALOG.values() if doc.precedence}
+    assert publishing == {"SP004"}, (
+        f"{sorted(publishing - {'SP004'})} publishes a precedence with nothing "
+        "checking it against the code that evaluates it"
+    )
+
+
+def test_a_documented_precedence_names_branches_the_contract_can_reach() -> None:
+    for doc in CATALOG.values():
+        if not doc.precedence:
+            continue
+        documented = [verdict.branch for verdict in doc.verdicts]
+        assert len(set(doc.precedence)) == len(doc.precedence), (
+            f"{doc.id} lists a branch twice in its precedence"
+        )
+        unknown = [b for b in doc.precedence if b not in documented]
+        assert not unknown, (
+            f"{doc.id} orders branches it does not document: {unknown}"
         )

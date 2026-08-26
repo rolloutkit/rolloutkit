@@ -93,11 +93,18 @@ Trivy, Checkov, KubeLinter, Polaris, or Semgrep.
   readiness endpoint as its in-flight target. A service whose readiness is fast
   can leave the endpoint's p50 too close to the measurement jitter floor to
   separate the two, and SP005 then reports `readiness_fallback_below_resolution`
-  rather than guessing. Because the jitter floor is a property of the host, the
-  same service can resolve on one machine and not on another: a 2.5-5.3ms
-  readiness p50 against a 0.23-1.66ms floor was measured at 1.9x to 15.3x on a
-  single machine, against a required 10x. Pass `--inflight-path` with a slower
-  representative endpoint for a result that does not depend on where it ran.
+  rather than guessing. It also declines any window under 3ms outright, whatever
+  the ratio says, because a ratio can be cleared by a quiet probe path as well as
+  by a wide window.
+- **The fallback result depends on the host it ran on.** Resolution on the
+  fallback path is decided against the machine's own noise floor, and that floor
+  is not portable. Measured across three conditions, it moved by 3.4x — a 0.154ms
+  median on an idle macOS laptop against 0.516ms on a native Linux CI daemon —
+  and the same image with 1ms and 2ms of readiness delay resolved on the laptop
+  and was refused on the runner, with nothing about the service differing. A run
+  that resolves on a developer machine can be `INCONCLUSIVE` in CI. Pass
+  `--inflight-path` with a slower representative endpoint for a result that does
+  not depend on where it ran.
 - **Windows** is not supported.
 
 ## Security

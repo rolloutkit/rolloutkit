@@ -156,6 +156,59 @@ def _completion_evidence(completed: int, in_flight: int) -> dict[str, Any]:
 #: does not by itself invalidate one.
 MIN_JITTER_RATIO = 10
 
+#: The floor under the ratio. A window this short is not resolved on the
+#: fallback path however clean the ratio looks.
+#:
+#: The ratio is a relative measure, so it can be cleared two ways: by a window
+#: that is genuinely wide, or by a probe path that happened to be quiet. The
+#: second is the case this catches. Measured across three conditions — an idle
+#: macOS laptop, the same laptop under full CPU load, and a native Linux CI
+#: daemon — the jitter floor moved by 3.4x between hosts (0.154ms against
+#: 0.516ms median), and the same image at 1ms and 2ms of readiness delay
+#: therefore resolved on the laptop and was refused on the runner. Nothing about
+#: those services differed. See docs/field-notes.md, "Three hosts, pipeline cost,
+#: and the fallback decision".
+#:
+#: Why 3ms and not 5. On the most conservative host measured, any floor in
+#: (4.15, 6.18] would have reproduced its ratio verdicts exactly — but a floor
+#: chosen from inside that band stops being a guard: for services with fast
+#: readiness it becomes the deciding input, which is the thing the ratio exists
+#: to avoid. Its job is the pathological case, not the ordinary one. Three
+#: measured points is also a thin basis for a constant, so it errs low: at 3ms
+#: the guard overturns two verdicts out of thirty across those conditions, and
+#: both were verdicts the Linux runner had already refused on the ratio alone.
+#:
+#: It can only ever turn a yes into a no. A window the ratio already refuses is
+#: not resolved by this passing, so raising it tightens the gate and lowering it
+#: never loosens it past the ratio.
+MIN_READINESS_WINDOW_MS = 3.0
+
+
+def fallback_resolution_cause(
+    p50_ms: float | None,
+    jitter_ms: float | None,
+    ratio: float | None,
+) -> str | None:
+    """Why the readiness fallback window cannot be resolved, or None if it can.
+
+    One function because three callers ask the same question — the SP005
+    precondition that publishes the verdict, and the two places in the lifecycle
+    that decide whether to spend a baseline measuring a window nobody will be
+    allowed to use. Three copies of a two-clause rule is how the copies come to
+    disagree.
+
+    The ratio is checked first and the floor second, so the reported cause names
+    the ratio whenever the ratio is what refused. The floor never gets credit
+    for a decision the ratio had already made.
+    """
+    if p50_ms is None or jitter_ms is None or jitter_ms <= 0 or ratio is None:
+        return "unmeasured"
+    if ratio < MIN_JITTER_RATIO:
+        return "below_ratio"
+    if p50_ms < MIN_READINESS_WINDOW_MS:
+        return "below_window"
+    return None
+
 
 def _window_evidence(report: RunReport) -> dict[str, Any]:
     jitter = report.measurement_jitter_ms

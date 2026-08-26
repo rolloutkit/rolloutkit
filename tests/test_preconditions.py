@@ -239,6 +239,84 @@ def test_readiness_fallback_below_jitter_resolution_is_inconclusive() -> None:
     assert result.evidence["precondition"]["inflight_target"] == "readiness_fallback"
 
 
+def test_readiness_fallback_below_absolute_floor_is_inconclusive() -> None:
+    """A clean ratio over a window that is short in absolute terms.
+
+    2.0ms against 0.15ms of jitter is 13.3x, comfortably over the required 10x,
+    and the current rule would have measured it. It is here because that pair of
+    numbers is what an idle macOS laptop actually produced for a 1ms readiness
+    delay, and a native Linux runner refused the identical image because its own
+    jitter floor is 3.4x higher. The ratio is not wrong about what it measures;
+    it just cannot see that the window is too short to survive being carried to
+    another host.
+    """
+    report = _finished_report()
+    report.config = Config(target=Target(image="fixture:latest", port=8000))
+    report.inflight_target = "readiness_fallback"
+    report.inflight_path = "/ready"
+    report.inflight_fallback_p50_ms = 2.0
+    report.inflight_fallback_jitter_ms = 0.15
+    report.inflight_fallback_ratio = 2.0 / 0.15
+    report.baseline = None
+    report.requests = []
+
+    result = _by_id(report)["SP005"]
+
+    assert (result.status, result.branch) == (
+        Status.INCONCLUSIVE,
+        "readiness_fallback_below_resolution",
+    )
+    precondition = result.evidence["precondition"]
+    assert precondition["cause"] == "below_window"
+    # The ratio cleared its gate. If this ever fails the test has stopped
+    # covering the case it was written for and is duplicating the one above.
+    assert precondition["ratio"] >= precondition["minimum_ratio"]
+    assert "3ms" in result.summary
+    assert "--inflight-path" in result.summary
+
+
+def test_readiness_fallback_names_the_ratio_when_the_ratio_refused() -> None:
+    """Both clauses fail, and the reported cause is the ratio.
+
+    Ordering, asserted rather than assumed. A 0.4ms window against 0.2ms of
+    jitter fails the floor and the ratio both, and the floor must not take
+    credit for a decision the ratio had already made — otherwise every reading
+    of these verdicts undercounts how often the ratio is the binding constraint.
+    """
+    report = _finished_report()
+    report.config = Config(target=Target(image="fixture:latest", port=8000))
+    report.inflight_target = "readiness_fallback"
+    report.inflight_path = "/ready"
+    report.inflight_fallback_p50_ms = 0.4
+    report.inflight_fallback_jitter_ms = 0.2
+    report.inflight_fallback_ratio = 2.0
+    report.baseline = None
+    report.requests = []
+
+    result = _by_id(report)["SP005"]
+
+    assert result.evidence["precondition"]["cause"] == "below_ratio"
+
+
+def test_readiness_fallback_resolves_when_both_clauses_pass() -> None:
+    """The guard is a floor, not a second decision.
+
+    5ms at 0.15ms of jitter clears both, and SP005 goes on to measure. Without
+    this the suite would only ever prove that the new clause can refuse.
+    """
+    report = _finished_report()
+    report.inflight_target = "readiness_fallback"
+    report.inflight_path = "/ready"
+    report.inflight_fallback_p50_ms = 5.0
+    report.inflight_fallback_jitter_ms = 0.15
+    report.inflight_fallback_ratio = 5.0 / 0.15
+
+    result = _by_id(report)["SP005"]
+
+    assert result.branch != "readiness_fallback_below_resolution"
+    assert result.status is not Status.INCONCLUSIVE
+
+
 def test_none_drain_warns_even_when_shutdown_never_started() -> None:
     report = RunReport(
         config=Config(target=Target(image="fixture:latest", port=8000))

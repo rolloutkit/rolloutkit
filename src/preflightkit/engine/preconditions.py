@@ -9,7 +9,11 @@ from preflightkit.contracts.base import Contract, ContractResult, Precondition, 
 from preflightkit.config.models import DrainStrategy
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.lifecycle import TEARDOWN_CALIBRATION_MAX_BUDGET_MS
-from preflightkit.contracts.inflight import MIN_JITTER_RATIO
+from preflightkit.contracts.inflight import (
+    MIN_JITTER_RATIO,
+    MIN_READINESS_WINDOW_MS,
+    fallback_resolution_cause,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,19 +35,31 @@ def _inflight_enabled(report: RunReport) -> Resolution:
 
 
 def _readiness_fallback_resolvable(report: RunReport) -> Resolution:
+    """Two clauses, one branch.
+
+    The ratio is the decision: can this host tell the window apart from its own
+    noise. `MIN_READINESS_WINDOW_MS` is a guard behind it, for the window that
+    clears the ratio only because the probe path was quiet. Both refusals reach
+    the same verdict — SP005 declines and says to pass --inflight-path — so they
+    are one branch, and `cause` in the evidence says which clause spoke. A
+    second branch name here would be an exception list with one entry in it.
+    """
     if report.inflight_target != "readiness_fallback":
         return Resolution(True)
     p50 = report.inflight_fallback_p50_ms
     jitter = report.inflight_fallback_jitter_ms
     ratio = report.inflight_fallback_ratio
+    cause = fallback_resolution_cause(p50, jitter, ratio)
     evidence = {
         "inflight_target": report.inflight_target,
         "readiness_p50_ms": p50,
         "jitter_ms": jitter,
         "ratio": ratio,
         "minimum_ratio": MIN_JITTER_RATIO,
+        "minimum_readiness_window_ms": MIN_READINESS_WINDOW_MS,
+        "cause": cause,
     }
-    if p50 is None or jitter is None or jitter <= 0 or ratio is None:
+    if cause == "unmeasured":
         return Resolution(
             False,
             "readiness fallback cannot be resolved because readiness p50 or "
@@ -51,8 +67,20 @@ def _readiness_fallback_resolvable(report: RunReport) -> Resolution:
             "endpoint",
             evidence,
         )
+    if cause == "below_window":
+        # Reported with the ratio it passed, because without it this reads as a
+        # duplicate of the clause above rather than the case it actually is.
+        return Resolution(
+            False,
+            f"readiness p50 {p50:.1f}ms is under the {MIN_READINESS_WINDOW_MS:.0f}ms "
+            f"floor for a fallback window; the {ratio:.1f}x ratio clears "
+            f"{MIN_JITTER_RATIO}x only because the probe path was quiet "
+            f"({jitter:.2f}ms), and a window that short resolves on one host and "
+            "not on another — point --inflight-path at a slower endpoint",
+            evidence,
+        )
     return Resolution(
-        ratio >= MIN_JITTER_RATIO,
+        cause is None,
         f"readiness p50 {p50:.1f}ms, jitter {jitter:.1f}ms, ratio {ratio:.1f}x "
         f"is below the required {MIN_JITTER_RATIO}x; the in-flight window cannot "
         "be distinguished from measurement noise — point --inflight-path at a "

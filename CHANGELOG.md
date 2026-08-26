@@ -40,6 +40,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drain strategy that can reach it; the branch catalogue is now enforced against
   the contracts by test.
 - Readiness is used as the SP005 fallback target when no in-flight path is set.
+- The SP005 readiness fallback now also requires an absolute window of at least
+  3ms, not only 10x the probe-path jitter. The ratio remains the decision; the
+  floor is a guard behind it that can only turn a yes into a no, for the window
+  that clears the ratio because the probe path was quiet rather than because the
+  window was wide. Measured across three conditions, the jitter floor moved 3.4x
+  between hosts, and the same image at 1ms and 2ms of readiness delay resolved on
+  a macOS laptop while a native Linux runner refused it. The verdict branch is
+  unchanged; the precondition evidence carries a `cause` naming which clause
+  refused. `explain SP005` and the README state the host dependence.
+- `resolution_calibration` records every readiness and jitter sample the run
+  takes, not only p50 and max. The samples were already paid for and discarded,
+  and without them a revision of the fallback rule needs a fresh measurement
+  campaign rather than the readings already in hand.
 - Branch coverage is enforced against Python tests as well as against
   `fixtures/matrix.yaml`. A test that names a verdict branch has to have that
   branch registered — by a matrix row, or by being the proof the catalog names

@@ -389,16 +389,24 @@ CATALOG: dict[str, ContractDoc] = {
             "opt-out and therefore SKIP rather than a measurement failure.",
             "When readiness is the zero-config fallback target, its p50 must be at "
             "least 10x the probe-path jitter, so the before/after-SIGTERM boundary "
-            "is distinguishable from noise. An explicit --inflight-path bypasses "
-            "this gate. Be aware that the fallback is the default path: with no "
-            "--inflight-path, SP005 measures whatever the readiness endpoint does, "
-            "and a fast readiness endpoint is often close enough to the jitter "
-            "floor that the same service resolves on one host and not on another. "
-            "Measured: a readiness p50 of 2.5-5.3ms against a 0.23-1.66ms jitter "
-            "floor gave ratios from 1.9x to 15.3x on one machine. If SP005 reports "
-            "readiness_fallback_below_resolution, that is the tool declining to "
-            "guess, not a defect in the service; point --inflight-path at a slower "
-            "representative endpoint and the measurement becomes stable.",
+            "is distinguishable from noise, and must be at least 3ms in absolute "
+            "terms whatever the ratio says. The 3ms floor is a guard, not the "
+            "decision: it can only turn a yes into a no, and it exists because a "
+            "ratio can also be cleared by a probe path that happened to be quiet "
+            "rather than by a window that is genuinely wide. An explicit "
+            "--inflight-path bypasses both.",
+            "Resolution on the fallback path is a property of the host, not only "
+            "of the service. The jitter floor it divides by was measured 3.4x "
+            "apart across three conditions — 0.154ms median on an idle macOS "
+            "laptop against 0.516ms on a native Linux CI daemon — and the same "
+            "image at 1ms and 2ms of readiness delay therefore resolved on the "
+            "laptop and was refused on the runner, with nothing about the service "
+            "differing. A result that resolves on one machine can be INCONCLUSIVE "
+            "on another. Pass --inflight-path with a slower representative "
+            "endpoint for a result that does not depend on where it ran. If SP005 "
+            "reports readiness_fallback_below_resolution, that is the tool "
+            "declining to guess, not a defect in the service; the precondition "
+            "evidence carries a cause saying which clause refused.",
             "Shutdown must visibly start, otherwise the request outcomes cannot be "
             "attributed to a shutdown transition at all — this is the precondition "
             "that stops a process which ignores SIGTERM from reporting a clean "
@@ -443,9 +451,11 @@ CATALOG: dict[str, ContractDoc] = {
             Verdict(
                 "readiness_fallback_below_resolution",
                 "INCONCLUSIVE",
-                "No in-flight path was configured and readiness is too fast "
-                "relative to jitter to hold a request open across the signal. Pass "
-                "--inflight-path with a slower representative endpoint.",
+                "No in-flight path was configured and readiness is too fast to "
+                "hold a request open across the signal — either relative to the "
+                "probe-path jitter or in absolute terms. Pass --inflight-path with "
+                "a slower representative endpoint. The precondition evidence names "
+                "which of the two refused.",
                 evidence=Evidence.DECISION_UNIT,
                 proof=(
                     "tests/test_preconditions.py::"

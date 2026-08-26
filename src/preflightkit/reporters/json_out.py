@@ -6,7 +6,10 @@ import json
 from typing import Any
 
 from preflightkit.contracts.base import Status
-from preflightkit.contracts.inflight import MIN_JITTER_RATIO
+from preflightkit.contracts.inflight import (
+    MIN_JITTER_RATIO,
+    MIN_READINESS_WINDOW_MS,
+)
 from preflightkit.engine.context import RunReport
 from preflightkit.evidence.model import RunOutcome, Session
 from preflightkit.evidence.redact import Redactor
@@ -163,6 +166,25 @@ def _resolution_calibration(report: RunReport) -> dict[str, Any]:
 
     The teardown floor is the other half of the same question and is already
     recorded per run in `teardown_calibration`.
+
+    `readiness_latencies_ms` is every sample the run took, not a summary of
+    them. The run already pays for ten sequential readiness probes and used to
+    keep only p50 and max, which is enough to apply the current rule and not
+    enough to ask whether a different one would have been steadier — a lower
+    bound, a spread, a quantile other than the median. Those questions were
+    previously answerable only by running the whole prediction again N times,
+    which on the realistic profile is minutes per data point. Kept here rather
+    than only under `readiness_baseline` so that this block stays the one
+    self-contained record of what the host could resolve: the analysis reads it
+    on its own, and a batch copied off a measurement host must not arrive
+    missing the numbers the decision was made from.
+
+    The jitter samples are kept for the same reason and are the more important
+    half of the pair. The ratio has two terms, and across 448 runs on three
+    conditions the volatility was almost entirely in the denominator: on the
+    200ms fixture the readiness p50 varied by a coefficient of 0.01 while the
+    jitter varied by 0.14. Recording only the numerator's samples would have
+    widened the block without making the question answerable.
     """
     readiness = report.readiness_baseline
     p50 = readiness.p50_ms if readiness is not None else None
@@ -176,11 +198,23 @@ def _resolution_calibration(report: RunReport) -> dict[str, Any]:
         "measurement_jitter_ms": _round(jitter),
         "measurement_jitter_source": report.probe_location,
         "measurement_jitter_samples": len(report.ping_latencies_ns),
+        "measurement_jitter_latencies_ms": [
+            _round(latency / 1_000_000) for latency in report.ping_latencies_ns
+        ],
         "readiness_p50_ms": _round(p50),
         "readiness_max_ms": _round(readiness.max_ms) if readiness is not None else None,
+        "readiness_min_ms": (
+            _round(min(readiness.latencies_ms)) if readiness and readiness.samples else None
+        ),
         "readiness_samples": len(readiness.samples) if readiness is not None else 0,
+        "readiness_latencies_ms": (
+            [_round(latency) for latency in readiness.latencies_ms]
+            if readiness is not None
+            else []
+        ),
         "ratio": _round(p50 / jitter) if p50 is not None and jitter else None,
         "minimum_ratio": MIN_JITTER_RATIO,
+        "minimum_readiness_window_ms": MIN_READINESS_WINDOW_MS,
         "inflight_target": report.inflight_target,
     }
 

@@ -27,7 +27,10 @@ import pytest
 import yaml
 
 from preflightkit.contracts.catalog import CATALOG, Evidence
-from preflightkit.contracts.inflight import MIN_JITTER_RATIO
+from preflightkit.contracts.inflight import (
+    MIN_JITTER_RATIO,
+    MIN_READINESS_WINDOW_MS,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
@@ -325,10 +328,29 @@ def test_configless_one_line_cli_and_required_skip_gate(
         # The verdict has to follow the numbers it published, not merely be
         # allowed by them.
         precondition = sp005["evidence"]["precondition"]
-        assert precondition["ratio"] < precondition["minimum_ratio"], (
-            "SP005 declined the fallback while its own evidence says the window "
-            f"was resolvable: {precondition}"
-        )
+        # Two clauses can decline, so the assertion checks the one that says it
+        # did. Pinning this to the ratio alone would fail the moment the
+        # absolute floor is what refused, which is a real outcome on a host
+        # with a quiet probe path — the case the floor was added for.
+        cause = precondition["cause"]
+        if cause == "below_ratio":
+            assert precondition["ratio"] < precondition["minimum_ratio"], (
+                "SP005 blamed the ratio while its own evidence says the window "
+                f"cleared it: {precondition}"
+            )
+        elif cause == "below_window":
+            assert (
+                precondition["readiness_p50_ms"]
+                < precondition["minimum_readiness_window_ms"]
+            ), (
+                "SP005 blamed the absolute floor while its own evidence says the "
+                f"window cleared it: {precondition}"
+            )
+        else:
+            assert cause == "unmeasured", (
+                f"SP005 declined the fallback for an unknown reason: {precondition}"
+            )
+            assert precondition["ratio"] is None, precondition
         assert [c["id"] for c in unmeasured] == ["SP005"]
         assert unmeasured[0]["status"] == "INCONCLUSIVE"
         # A required contract that could not be measured blocks the pipeline.
@@ -341,6 +363,11 @@ def test_configless_one_line_cli_and_required_skip_gate(
         assert ratio is not None and ratio >= MIN_JITTER_RATIO, (
             "SP005 counted a fallback window without the ratio that permits it: "
             f"{window}"
+        )
+        p50 = window["readiness_p50_ms"]
+        assert p50 is not None and p50 >= MIN_READINESS_WINDOW_MS, (
+            "SP005 counted a fallback window the absolute floor should have "
+            f"refused: {window}"
         )
         assert not unmeasured, unmeasured
         # SP004 is a WARN under drain: none, and WARN does not block.

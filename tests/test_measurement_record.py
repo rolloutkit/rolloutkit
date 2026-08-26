@@ -20,7 +20,10 @@ machine happened to run it, which is the failure this record exists to end.
 from __future__ import annotations
 
 from preflightkit.config.models import Config, Target
-from preflightkit.contracts.inflight import MIN_JITTER_RATIO
+from preflightkit.contracts.inflight import (
+    MIN_JITTER_RATIO,
+    MIN_READINESS_WINDOW_MS,
+)
 from preflightkit.engine.context import RunReport
 from preflightkit.evidence.model import RunOutcome, Session
 from preflightkit.probes.http import ProbeResult
@@ -131,6 +134,43 @@ def test_the_ratio_is_reported_against_the_constant_in_force() -> None:
     expected = calibration["readiness_p50_ms"] / calibration["measurement_jitter_ms"]
     assert calibration["ratio"] == round(expected, 3)
     assert calibration["minimum_ratio"] == MIN_JITTER_RATIO
+
+
+def test_every_sample_is_kept_and_not_only_its_summary() -> None:
+    """The samples are already paid for; discarding them is the only cost.
+
+    p50 and max are enough to apply the rule in force and not enough to ask
+    whether a different one would have been steadier. Answering that from
+    summaries alone means running the whole prediction again N times, which on a
+    realistic profile is minutes per data point — so the readings are written
+    down instead, on the run that already took them.
+
+    The jitter samples are the half that matters more: across the three-host
+    campaign the ratio's volatility was almost entirely in its denominator.
+    """
+    calibration = _document(_report())["runs"][0]["resolution_calibration"]
+
+    readings = calibration["readiness_latencies_ms"]
+    assert len(readings) == calibration["readiness_samples"]
+    assert calibration["readiness_min_ms"] == min(readings)
+    assert calibration["readiness_max_ms"] == max(readings)
+
+    jitter = calibration["measurement_jitter_latencies_ms"]
+    assert len(jitter) == calibration["measurement_jitter_samples"]
+
+
+def test_the_absolute_floor_travels_with_the_ratio_it_guards() -> None:
+    """Both constants, or the row cannot be re-scored later.
+
+    A batch is only comparable against a later threshold change if it says which
+    thresholds it was measured under. The ratio has carried its own since this
+    block existed; the floor added beside it has to as well, or old batches
+    silently get re-read under whatever the constant becomes.
+    """
+    calibration = _document(_report())["runs"][0]["resolution_calibration"]
+
+    assert calibration["minimum_ratio"] == MIN_JITTER_RATIO
+    assert calibration["minimum_readiness_window_ms"] == MIN_READINESS_WINDOW_MS
 
 
 def test_the_jitter_reading_names_where_it_was_measured() -> None:

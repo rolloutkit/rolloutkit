@@ -35,7 +35,7 @@ from preflightkit.traffic.accept_probe import (
     probe_new_connection,
 )
 from preflightkit.traffic.generator import run_long_requests
-from preflightkit.contracts.inflight import MIN_JITTER_RATIO
+from preflightkit.contracts.inflight import fallback_resolution_cause
 
 READINESS_WATCH_INTERVAL_MS = 20
 
@@ -495,9 +495,16 @@ async def _baseline(
             report.inflight_fallback_ratio = (
                 report.inflight_fallback_p50_ms / report.inflight_fallback_jitter_ms
             )
+        # Same rule SP005's precondition publishes. Measuring a baseline for a
+        # window the verdict will refuse costs the run its slowest phase and
+        # produces evidence for a contract that will not use it.
         if (
-            report.inflight_fallback_ratio is None
-            or report.inflight_fallback_ratio < MIN_JITTER_RATIO
+            fallback_resolution_cause(
+                report.inflight_fallback_p50_ms,
+                report.inflight_fallback_jitter_ms,
+                report.inflight_fallback_ratio,
+            )
+            is not None
         ):
             return
 
@@ -532,9 +539,16 @@ def _finish_baseline(config: Config, report: RunReport) -> None:
             report.inflight_fallback_ratio = (
                 report.inflight_fallback_p50_ms / report.inflight_fallback_jitter_ms
             )
+        # Same rule SP005's precondition publishes. Measuring a baseline for a
+        # window the verdict will refuse costs the run its slowest phase and
+        # produces evidence for a contract that will not use it.
         if (
-            report.inflight_fallback_ratio is None
-            or report.inflight_fallback_ratio < MIN_JITTER_RATIO
+            fallback_resolution_cause(
+                report.inflight_fallback_p50_ms,
+                report.inflight_fallback_jitter_ms,
+                report.inflight_fallback_ratio,
+            )
+            is not None
         ):
             return
 

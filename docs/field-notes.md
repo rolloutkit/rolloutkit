@@ -2042,15 +2042,19 @@ applications of a rule to the same configuration on the same host reach opposite
 answers, bootstrapped over 20,000 resamples with a fixed seed. There is no
 ground truth here and inventing one would mean assuming the answer, so the
 metric asks only whether the rule repeats itself. `scripts/analyse_resolution.py`
-prints it; `ratio-1` reproduces the shipped rule exactly and is checked against
-it as a consistency test.
+prints it. When these batches were taken, `current` and `ratio-1` were the same
+rule and agreed exactly, which is how the script was checked against the tool.
+They have since diverged: `current` now applies the absolute floor adopted
+below, while the `ratio-k` and `p50-T` columns deliberately do not, because
+those columns exist to compare candidate rules and folding a shipped constant
+into a candidate would score it on a decision it did not make.
 
 **The instability is not where it looked.** Within a single machine state the
 current rule is already settled: disagreement 0.00 on all ten macOS-warm batches
 and all ten Linux CI batches. Every non-zero figure in the whole dataset comes
 from the loaded state:
 
-| batch (loaded) | current (= ratio-1) | ratio-3 | ratio-5 | ratio-9 | p50>=5ms | p50>=10ms |
+| batch (loaded) | current, as measured (= ratio-1) | ratio-3 | ratio-5 | ratio-9 | p50>=5ms | p50>=10ms |
 |---|---|---|---|---|---|---|
 | `fallback` | 0.50 | 0.22 | 0.06 | 0.00 | 0.22 | 0.00 |
 | `sweep-1ms` | 0.50 | 0.22 | 0.06 | 0.00 | 0.00 | 0.00 |
@@ -2159,10 +2163,57 @@ turn a "yes" into a "no", and the load failure mode is a false yes. From the
 band above, 5ms is the calibrated value; it changes no verdict on Linux CI and
 removes three on macOS, all three of which Linux already refused.
 
+Adopted at **3ms**, below that band rather than inside it, on the argument that
+a floor taken from (4.15, 6.18] stops being a guard: for a service with fast
+readiness it becomes the deciding input, which is the role the ratio is supposed
+to hold. The guard's job is the pathological case — a ratio cleared by a quiet
+probe path rather than by a wide window — and three measured hosts is a thin
+basis for a constant, so it errs low. What that costs is one of the three
+cross-host disagreements: at 3ms the guard overturns `sweep-1ms` and `sweep-2ms`
+on macOS, and `sweep-3ms` at p50 4.06ms stays above any floor in the 3-4ms range
+and keeps disagreeing with Linux, which refuses it at ratio 8.29. Cross-host
+agreement goes 7/10 to 9/10, not to 10/10. The tenth is not reachable by a guard
+placed below the band, and reaching it was not worth making the guard the rule.
+`MIN_JITTER_RATIO` unchanged at 10. Implemented as
+`MIN_READINESS_WINDOW_MS = 3.0` in `src/preflightkit/contracts/inflight.py`,
+where the ratio and the floor are one function that all three call sites share.
+
+Replayed against all 448 documents, the guard moves **14 of 160** fallback runs,
+every one of them resolve to refuse and none the other way — 8 of 8 on macOS
+`sweep-1ms` and 6 of 8 on macOS `sweep-2ms`. Nothing else in the campaign is
+touched.
+
+That 6-of-8 is the cost, and it should be recorded next to the benefit rather
+than under it. `sweep-2ms` has a readiness p50 of 2.89ms, which puts it on the
+new boundary the way `sweep-5ms-loaded` sat on the old one: its disagreement
+under the shipped rule goes from 0.00 to **0.38**, a configuration that used to
+answer the same way every time and now does not. The guard did not remove the
+boundary problem, it moved the boundary — which is exactly the objection raised
+above against raising `MIN_JITTER_RATIO`, and it applies here with equal force.
+
+What makes the trade worth taking anyway is where the boundary now sits. At 10x
+the boundary tracked the *host*: `sweep-1ms` was a stable resolve on one machine
+and a stable refusal on another, and no amount of repetition on either machine
+would have revealed the disagreement. At 3ms the boundary tracks the *service*:
+a service whose readiness p50 is near 3ms is unstable everywhere, identically,
+and repeating the run shows it. An unstable answer that repeats its instability
+is one a user can act on; a stable answer that is stable for the wrong reason is
+not. Neither is free, and this note is not claiming the second problem was
+solved.
+
 **Take the cheap half of variant A, not the stated one.** Record the readiness
 samples the run already collects, or a lower quantile of them, in
 `resolution_calibration`. Then a lower bound is available for free and the
 INCONCLUSIVE branch can be defended from within a single run. Nine runs cannot.
+
+Adopted. `resolution_calibration` now carries `readiness_latencies_ms` and
+`measurement_jitter_latencies_ms` — every sample, not a summary. The jitter
+samples matter more than the readiness ones: across these 448 runs the ratio's
+volatility was almost entirely in its denominator, 0.14 against 0.01 on the
+200ms fixture, so recording only the numerator would have widened the block
+without making the question answerable. No decision reads them yet; they exist
+so that the next revision of this rule can be argued from readings that are
+already in hand rather than from a fresh campaign.
 
 **Report the floor, whatever is decided.** The most useful output of this whole
 exercise for a user is not a verdict but the sentence "this host cannot resolve
@@ -2181,12 +2232,49 @@ supplied separately and did not arrive, so both real-service legs are also open
 readiness delay was chosen to bracket the threshold, and a real service lands
 where it lands.
 
-Teardown floor: `teardown_calibration` was null in all 448 runs on all three
-conditions. No fixture in the set has a shutdown budget close enough to the
-daemon floor to trigger calibration, so this leg produced nothing. The `teardown`
-*phase* durations in the cost table are the phase's wall-clock, which is a
-different quantity and is not a floor. The cross-host floor figures this file
-carries elsewhere still come from the runs that did calibrate.
+### Teardown calibration did not run once, and why
+
+`teardown_calibration` was null in **all 448 runs on all three conditions**.
+Not sparse, not noisy — absent. Anyone reading this file later should not go
+looking for cross-host teardown-floor numbers in these batches, because there
+are none, and the `teardown` *phase* durations in the cost table above are not
+them: that is the phase's own wall-clock, a different quantity measured for a
+different reason, and reading 183-215ms as a daemon characteristic would be
+reading a stopwatch on a code path.
+
+The reason is not bad luck. Calibration is gated on
+`TEARDOWN_CALIBRATION_MAX_BUDGET_MS = 2_000`: a run measures the floor only when
+the configured shutdown budget is 2s or under, on the argument that a budget far
+from the floor can be judged without it. That is sound laziness and is not being
+questioned here. What it means in practice is that the gate is closed for every
+configuration in this set — the four hand-written batches derive budgets of
+25000, 30000, 30000 and 25000ms, and the five generated sweep configs are all
+30000ms. Not one of the ten comes within an order of magnitude of the cutoff, so
+the gate was never once open across 448 runs.
+
+The set is at fault here, not the tool. Three fixtures in `fixtures/matrix.yaml`
+*do* qualify — `stdlib-http/django-shipped.yaml` at 1000ms, and
+`ignores-sigterm/preflightkit.yaml` and `stdlib-http/baseline-500.yaml` at
+2000ms — and the Docker matrix runs all three. The floor is therefore measurable
+and is being measured; it is simply not measured by anything in
+`scripts/measure-set.sh`, which was built around the resolution question and
+inherited profiles chosen for it. A cross-host teardown campaign needs one of
+those three added to the set. That is a one-line change and was not made here,
+because the brief asked for readings and changing the harness mid-campaign would
+have made the ten batches incomparable with the ones already taken.
+
+There is a second-order consequence worth stating. Unlike the jitter ratio, the
+teardown stddev multiplier cannot have its evidence accumulate as a side effect
+of ordinary use: `resolution_calibration` is written on every run, whereas the
+block that would justify the teardown constant is null on any run with a
+realistic grace period — which is every run a person would actually make. The
+fix that worked for the ratio, write the readings down on every run, does not
+transfer. Whatever defends that constant will have to be a deliberate campaign
+against fixtures chosen for it.
+
+The cross-host teardown-floor figures this file carries elsewhere — 237-250ms on
+Linux, 50.73ms on macOS — still come from the earlier runs that did calibrate,
+and remain the only measurements of it that exist.
 
 ### How these were taken
 

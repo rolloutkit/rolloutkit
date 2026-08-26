@@ -48,7 +48,15 @@ SEED = 20260826
 #: The rule in force, repeated rather than imported: this script is run against
 #: readings taken by other builds, and importing the constant would silently
 #: re-evaluate old batches under a new threshold.
+#:
+#: Both halves of it. The ratio is the decision and the window is a guard behind
+#: it that can only turn a resolve into a refusal, so `current` applies them in
+#: that order — the same order the tool does. The `ratio-k` and `p50-T` columns
+#: below deliberately do *not* apply the guard: they exist to compare candidate
+#: rules against each other, and folding a shipped constant into a candidate
+#: would score the candidate on a decision it did not make.
 CURRENT_RATIO = 10.0
+CURRENT_WINDOW_MS = 3.0
 
 RATIO_SAMPLE_COUNTS = (1, 3, 5, 9)
 ABSOLUTE_THRESHOLDS_MS = (5.0, 10.0, 20.0, 50.0)
@@ -134,7 +142,11 @@ def _estimate(readings: list[Reading], rng: random.Random) -> dict[str, Any]:
     p50s = [r.p50_ms for r in readings]
     result: dict[str, Any] = {}
 
-    single = sum(1 for value in ratios if value >= CURRENT_RATIO) / len(ratios)
+    single = sum(
+        1
+        for reading in readings
+        if reading.ratio >= CURRENT_RATIO and reading.p50_ms >= CURRENT_WINDOW_MS
+    ) / len(readings)
     result["current"] = {"resolve": single, "disagree": _disagreement(single)}
 
     for k in RATIO_SAMPLE_COUNTS:

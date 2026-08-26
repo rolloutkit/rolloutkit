@@ -16,6 +16,23 @@ measurement before the product-sidecar rerun used
 `probe_location: host_direct`. Those rows remain unchanged as the historical
 baseline.
 
+**Every commit SHA in this file that predates 2026-08-26 names a commit that no
+longer exists.** The repository's history was rewritten on that date to remove a
+work email address from the author and committer fields of all 48 commits, which
+`git grep` could not reach because an identity lives in the commit header rather
+than in a blob. Rewriting changes every SHA. The trees did not change — only the
+identity did — so each section still describes the code it always described, but
+the name it uses for that code has to be translated.
+
+The old-to-new table is `docs/commit-map.md`, with the machine-readable two-column
+form in `docs/commit-map.txt`. The same applies to `preflightkit_commit` in every
+JSON report written before that date, including all 208 documents in the
+measurement corpus.
+
+Two SHAs here are not preflightkit commits and are unaffected: service-b's source
+commit `efa24f341b58`, and the sidecar-probe spike harness `ece4949723f0`, which
+was never part of this repository.
+
 ---
 
 ## service-a (2026-08-21; preflightkit commit: unknown, pre-provenance)

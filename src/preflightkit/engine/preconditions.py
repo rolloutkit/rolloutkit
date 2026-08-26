@@ -9,6 +9,11 @@ from preflightkit.contracts.base import Contract, ContractResult, Precondition, 
 from preflightkit.config.models import DrainStrategy
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.lifecycle import TEARDOWN_CALIBRATION_MAX_BUDGET_MS
+from preflightkit.contracts.drain import (
+    accept_window_cause,
+    accept_window_resolution_evidence,
+    accept_window_unmeasured_reason,
+)
 from preflightkit.contracts.inflight import (
     MIN_JITTER_RATIO,
     MIN_READINESS_WINDOW_MS,
@@ -182,6 +187,28 @@ def _direct_connection_path(report: RunReport) -> Resolution:
     )
 
 
+def _accept_window_measured(report: RunReport) -> Resolution:
+    """The accept window has to be a measurement before it can be a verdict.
+
+    SP004's in-app verdicts all read `accept_window_ms` as the moment the
+    listener stopped accepting, which it only is when the probe was still being
+    accepted at T0. When the last accept sits further before T0 than one probe
+    interval, the probe had already stopped getting through while the process was
+    still serving, and nothing about the drain was observed. The number stays in
+    evidence; what it does not get to do is become a listener-close time.
+    """
+    if report.config.deployment.drain.strategy is not DrainStrategy.IN_APP:
+        return Resolution(True)
+    cause = accept_window_cause(report)
+    if cause is None:
+        return Resolution(True, evidence=accept_window_resolution_evidence(report))
+    return Resolution(
+        False,
+        accept_window_unmeasured_reason(report, cause),
+        accept_window_resolution_evidence(report),
+    )
+
+
 RESOLVERS: dict[str, Resolver] = {
     "inflight_enabled": _inflight_enabled,
     "readiness_fallback_resolvable": _readiness_fallback_resolvable,
@@ -189,6 +216,7 @@ RESOLVERS: dict[str, Resolver] = {
     "baseline_steady_state_2xx": _baseline_steady_state_2xx,
     "shutdown_budget_resolvable": _shutdown_budget_resolvable,
     "direct_connection_path": _direct_connection_path,
+    "accept_window_measured": _accept_window_measured,
 }
 
 

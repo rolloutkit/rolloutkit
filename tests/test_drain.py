@@ -181,6 +181,109 @@ def test_terminal_prints_accept_window_with_its_resolution() -> None:
     assert "+1600ms (±50ms)" in console.export_text()
 
 
+def _after_last_accept(
+    report: RunReport, *, unanswered: int = 0, refused: int = 0
+) -> RunReport:
+    """Everything the probe tried once it stopped getting accepted.
+
+    Each attempt is 50ms after the last, which is what the probe does; the
+    outcomes are what the peer did with them. TIMEOUT is a dropped SYN, which is
+    a listening socket whose accept queue is full; REFUSED is an RST, which is no
+    listening socket at all.
+    """
+    started = max(attempt.started_ns for attempt in report.accept_attempts)
+    outcomes = [AcceptOutcome.TIMEOUT] * unanswered + [AcceptOutcome.REFUSED] * refused
+    for index, outcome in enumerate(outcomes, start=1):
+        started += 50_000_000
+        report.accept_attempts.append(
+            AcceptAttempt(
+                started_ns=started,
+                connected_ns=None,
+                finished_ns=started + 1_000_000,
+                outcome=outcome,
+                error=f"attempt {index}",
+            )
+        )
+    return report
+
+
+def _unmeasured(strategy: DrainStrategy, **counts) -> RunReport:
+    report = _report(strategy, accept_ms=-2200)
+    report.facts["shutdown_started"] = True
+    return _after_last_accept(report, **counts)
+
+
+def test_sp004_last_accept_inside_one_probe_interval_is_still_a_measurement() -> None:
+    """The sign alone is not the signal.
+
+    The probe samples every 50ms, so a listener that closed exactly at T0 leaves
+    its last accept anywhere in the 50ms before it. Refusing that reading would
+    throw away a genuine early close.
+    """
+    report = _report(DrainStrategy.IN_APP, accept_ms=-40)
+    report.facts["shutdown_started"] = True
+    result = _resolved(report)
+    assert (result.status, result.branch) == (
+        Status.FAIL,
+        "in_app_listener_closed_early",
+    )
+
+
+def test_sp004_last_accept_further_back_than_the_interval_is_inconclusive() -> None:
+    result = _resolved(_unmeasured(DrainStrategy.IN_APP, refused=6))
+    assert (result.status, result.branch) == (
+        Status.INCONCLUSIVE,
+        "accept_window_unmeasured",
+    )
+    assert "the probe stopped being accepted before T0" in result.summary
+    assert "accept window not measured" in result.summary
+
+
+def test_sp004_names_a_saturated_backlog_when_the_refusals_name_it() -> None:
+    """Unanswered SYNs are a full accept queue; RSTs are a closed listener."""
+    result = _resolved(_unmeasured(DrainStrategy.IN_APP, unanswered=5, refused=1))
+    assert result.branch == "accept_window_unmeasured"
+    assert result.summary.startswith("probe saturated the backlog")
+
+
+def test_sp004_unmeasured_accept_window_keeps_the_raw_value() -> None:
+    result = _resolved(_unmeasured(DrainStrategy.IN_APP, unanswered=5, refused=1))
+    precondition = result.evidence["precondition"]
+    assert precondition["accept_window_ms"] == -2200
+    assert precondition["cause"] == "stopped_before_t0"
+    assert (
+        precondition["unanswered_after_last_accept"],
+        precondition["refused_after_last_accept"],
+    ) == (5, 1)
+    assert result.evidence["unresolved_candidate"] == {
+        "status": "FAIL",
+        "branch": "in_app_listener_closed_early",
+    }
+
+
+def test_sp004_never_accepted_is_inconclusive_not_a_zero_window() -> None:
+    report = _report(DrainStrategy.IN_APP)
+    report.facts["shutdown_started"] = True
+    report.accept_attempts = []
+    result = _resolved(report)
+    assert (result.status, result.branch) == (
+        Status.INCONCLUSIVE,
+        "accept_window_unmeasured",
+    )
+    assert result.evidence["precondition"]["cause"] == "never_accepted"
+
+
+def test_sp004_prestop_does_not_need_a_measured_accept_window() -> None:
+    """The probe is stopped at T0 by design, so the last accept is always early."""
+    result = _resolved(_unmeasured(DrainStrategy.PRESTOP, refused=6))
+    assert (result.status, result.branch) == (Status.PASS, "prestop_not_applicable")
+
+
+def test_sp004_none_does_not_need_a_measured_accept_window() -> None:
+    result = _resolved(_unmeasured(DrainStrategy.NONE, refused=6))
+    assert (result.status, result.branch) == (Status.WARN, "none_uncovered")
+
+
 def test_sp004_shutdown_precondition_is_inconclusive() -> None:
     result = _resolved(_report(DrainStrategy.IN_APP))
     assert (result.status, result.branch) == (

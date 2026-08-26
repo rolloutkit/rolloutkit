@@ -86,6 +86,9 @@ SHUTDOWN_BUDGET_RESOLVABLE = Precondition(
 DIRECT_CONNECTION_PATH = Precondition(
     "direct_connection_path", "port_proxy_likely"
 )
+ACCEPT_WINDOW_MEASURED = Precondition(
+    "accept_window_measured", "accept_window_unmeasured"
+)
 
 
 class Contract(Protocol):

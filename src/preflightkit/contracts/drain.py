@@ -7,6 +7,7 @@ from typing import Any
 
 from preflightkit.config.models import DrainStrategy
 from preflightkit.contracts.base import (
+    ACCEPT_WINDOW_MEASURED,
     DIRECT_CONNECTION_PATH,
     SHUTDOWN_BUDGET_RESOLVABLE,
     SHUTDOWN_STARTED,
@@ -14,6 +15,7 @@ from preflightkit.contracts.base import (
     Status,
 )
 from preflightkit.engine.context import RunReport
+from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS, AcceptOutcome
 
 _THIN_MARGIN_RATIO = 0.20
 
@@ -26,12 +28,14 @@ class DrainWindowContract:
         SHUTDOWN_STARTED,
         DIRECT_CONNECTION_PATH,
         SHUTDOWN_BUDGET_RESOLVABLE,
+        ACCEPT_WINDOW_MEASURED,
     )
 
     BRANCHES = {
         "shutdown_never_started": Status.INCONCLUSIVE,
         "port_proxy_likely": Status.INCONCLUSIVE,
         "budget_below_teardown_floor": Status.INCONCLUSIVE,
+        "accept_window_unmeasured": Status.INCONCLUSIVE,
         "accept_then_reset": Status.FAIL,
         "in_app_listener_closed_early": Status.FAIL,
         "in_app_readiness_not_signaled": Status.WARN,
@@ -47,6 +51,11 @@ class DrainWindowContract:
         ``none`` is already a useful warning from the declared profile, and
         ``prestop`` delegates the gap to the platform before T0. Neither verdict
         depends on post-SIGTERM listener timing or even an observed reaction.
+
+        `ACCEPT_WINDOW_MEASURED` is dropped for the same reason, and under
+        ``prestop`` dropping it is not a convenience: the probe is stopped at T0
+        by design, so the last accepted connection is always on the wrong side
+        of the signal and the gate would refuse every preStop run there is.
         """
         if report.config.deployment.drain.strategy in (
             DrainStrategy.NONE,
@@ -55,7 +64,7 @@ class DrainWindowContract:
             return tuple(
                 condition
                 for condition in self.PRECONDITIONS
-                if condition is not SHUTDOWN_STARTED
+                if condition not in (SHUTDOWN_STARTED, ACCEPT_WINDOW_MEASURED)
             )
         return self.PRECONDITIONS
 
@@ -162,6 +171,98 @@ def _expected(report: RunReport) -> str:
     return "declare a drain mechanism"
 
 
+def accept_window_cause(report: RunReport) -> str | None:
+    """Why `accept_window_ms` is not a measurement, or None when it is.
+
+    The window runs from T0 to the last connection the probe got accepted, so it
+    only describes the drain if the probe was still being accepted when the
+    signal landed. Up to one probe interval below zero says exactly that and
+    nothing more: the probe samples every `accept_probe_interval_ms`, so a
+    listener that closed at T0 leaves its last accept anywhere inside the
+    interval before it, and the sign of the number is an artefact of where the
+    sampling grid fell. Further back than one interval is a different statement.
+    The probe had already stopped being accepted while the process was still
+    running normally, which means nothing after T0 was observed and the drain
+    window was never measured at all.
+
+    Reporting that case as a listener that "closed -217ms after T0" is a
+    stopwatch reading the tool does not have. It is the same refusal SP005's
+    fallback makes: decline, and say what was and was not measured.
+    """
+    window = report.accept_window_ms
+    if window is None:
+        return "never_accepted"
+    interval = report.accept_probe_interval_ms or ACCEPT_PROBE_INTERVAL_MS
+    return None if window >= -interval else "stopped_before_t0"
+
+
+def accept_window_unmeasured_reason(report: RunReport, cause: str) -> str:
+    """What to tell the reader, in the terms the evidence actually supports.
+
+    One branch, and the mechanism named only when the refusals name it. Every
+    attempt after the last accepted one failed to complete a handshake, and how
+    it failed separates the two cases: a dropped SYN times out, which is a
+    listening socket whose accept queue is full, and an RST is refused, which is
+    no listening socket at all. Where neither dominates, the wording stays at the
+    fact both share.
+    """
+    if cause == "never_accepted":
+        return (
+            "the accept probe never had a connection accepted, so there is no "
+            "accept window to hold against the declared in-app window; check "
+            "that target.port is the port the application listens on"
+        )
+    unanswered, refused = _refusals_after_last_accept(report)
+    mechanism = (
+        "probe saturated the backlog"
+        if unanswered > refused
+        else "the probe stopped being accepted before T0"
+    )
+    interval = report.accept_probe_interval_ms or ACCEPT_PROBE_INTERVAL_MS
+    window = report.accept_window_ms or 0.0
+    return (
+        f"{mechanism} — accept window not measured: the last connection the "
+        f"probe got accepted was {abs(window):.0f}ms before T0, further back "
+        f"than the {interval}ms probe interval, so what the listener did after "
+        "the signal was never observed. The raw accept_window_ms is in evidence"
+    )
+
+
+def _refusals_after_last_accept(report: RunReport) -> tuple[int, int]:
+    """Attempts after T2, split by how the peer turned them away.
+
+    Every attempt started after the last accepted one failed to connect — if one
+    had connected it would be the last accepted one instead — so the two counts
+    below are the whole population.
+    """
+    t2 = report.last_accepted_ns
+    if t2 is None:
+        return 0, 0
+    after = [
+        attempt.outcome
+        for attempt in report.accept_attempts
+        if attempt.started_ns > t2
+    ]
+    return (
+        sum(1 for outcome in after if outcome is AcceptOutcome.TIMEOUT),
+        sum(1 for outcome in after if outcome is AcceptOutcome.REFUSED),
+    )
+
+
+def accept_window_resolution_evidence(report: RunReport) -> dict[str, Any]:
+    """The numbers the accept-window gate decided on, kept whatever it decided."""
+    unanswered, refused = _refusals_after_last_accept(report)
+    return {
+        "accept_window_ms": report.accept_window_ms,
+        "probe_interval_ms": report.accept_probe_interval_ms
+        or ACCEPT_PROBE_INTERVAL_MS,
+        "t2_last_accepted_offset_ms": report.offset_ms(report.last_accepted_ns),
+        "unanswered_after_last_accept": unanswered,
+        "refused_after_last_accept": refused,
+        "cause": accept_window_cause(report),
+    }
+
+
 def _evidence(report: RunReport) -> dict[str, Any]:
     t2 = report.last_accepted_ns
     outcomes = Counter(
@@ -185,6 +286,7 @@ def _evidence(report: RunReport) -> dict[str, Any]:
         "t4_exit_source": report.shutdown_duration_source,
         "t4_observed_exit_offset_ms": report.observed_shutdown_duration_ms,
         "accept_window_ms": report.accept_window_ms,
+        "accept_window_cause": accept_window_cause(report),
         "accept_window_resolution_ms": report.accept_probe_interval_ms,
         "probe_interval_ms": report.accept_probe_interval_ms,
         "accept_probe_policy": (

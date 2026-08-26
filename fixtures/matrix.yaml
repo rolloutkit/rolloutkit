@@ -321,6 +321,20 @@ fixtures:
       SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 
+  - name: accept-window-not-measured
+    image: pfk-fixture-drain-window
+    config: drain-window/accept-window-unmeasured.yaml
+    description: >
+      The listener stops accepting 600ms after the probe's first request and two
+      seconds before SIGTERM, while the process is still serving normally. The
+      accept window comes out at roughly -1400ms, which is not a listener-close
+      time at all: nothing after T0 was observed. SP004 must decline rather than
+      publish a negative number as a closure that happened before it was asked
+      for. The neutral wording is the one on the wire here — the probe is refused
+      outright, not left unanswered.
+    expect:
+      SP004: {status: INCONCLUSIVE, branch: accept_window_unmeasured}
+
   - name: docker-desktop-host-fallback-port-proxy
     image: pfk-fixture-drain-window
     config: drain-window/host-fallback.yaml

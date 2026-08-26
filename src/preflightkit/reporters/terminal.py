@@ -207,15 +207,15 @@ def _timeline_block(console: Console, report: RunReport, redactor: Redactor) -> 
         if len(line) > LABEL_WIDTH:
             line = line[: LABEL_WIDTH - 2] + ".."
         offset = event.offset_ms_from(report.sigterm_ns)
-        console.print(line.ljust(LABEL_WIDTH) + f"+{offset:.0f}ms")
+        console.print(line.ljust(LABEL_WIDTH) + f"{offset:+.0f}ms")
     if report.readiness_drop_ns is None:
         console.print("  T1  readiness -> never".ljust(LABEL_WIDTH) + "never")
     t2 = report.offset_ms(report.last_accepted_ns)
     resolution = report.accept_probe_interval_ms or None
     accepted = (
-        f"+{t2:.0f}ms (±{resolution:.0f}ms)"
+        f"{t2:+.0f}ms (±{resolution:.0f}ms)"
         if t2 is not None and resolution is not None
-        else (f"+{t2:.0f}ms" if t2 is not None else "not measured")
+        else (f"{t2:+.0f}ms" if t2 is not None else "not measured")
     )
     console.print(
         "  T2  last new connection accepted".ljust(LABEL_WIDTH)
@@ -296,7 +296,7 @@ def _evidence_block(console: Console, result: ContractResult, redactor: Redactor
     broken = result.evidence.get("broken_requests") or []
     for item in broken[:_MAX_EVIDENCE_ROWS]:
         offset = item.get("offset_ms")
-        offset_text = f"+{offset:.0f}ms" if offset is not None else "?"
+        offset_text = f"{offset:+.0f}ms" if offset is not None else "?"
         bytes_note = ""
         if item.get("expected_body_bytes"):
             bytes_note = f", {item['body_bytes']}/{item['expected_body_bytes']} bytes"

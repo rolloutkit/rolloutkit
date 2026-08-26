@@ -1,0 +1,46 @@
+# The run where the accept window is not a measurement.
+#
+# The listener closes 600ms after the accept probe's first request, while the
+# process is still serving normally, and the signal follows two seconds later.
+# The last accepted connection therefore sits ~1400ms *before* T0 — twenty-eight
+# probe intervals on the wrong side of the signal — so nothing the listener did
+# after SIGTERM was ever observed. Reported as a listener that closed -1400ms
+# after T0, this reads as a defect in the application; it is not one, and it is
+# not a drain measurement either.
+version: 1
+
+target:
+  image: pfk-fixture-drain-window
+  port: 8000
+  env:
+    SLOW_SECONDS: "2.5"
+    STOP_ACCEPT_AFTER_MS: "600"
+    DRAIN_SECONDS: "1.0"
+    EXIT_SECONDS: "1.2"
+
+deployment:
+  termination_grace_period: 30s
+  drain: {strategy: in_app, in_app_window: 1200ms}
+
+probes:
+  readiness: {path: /ready, expected_status: 200}
+
+contracts:
+  startup: {budget: 15s}
+  # SP004 only sends SIGTERM on a delay when an in-flight measurement is
+  # running, and the delay is the whole point here: without it T0 lands the
+  # instant the probe arms and the listener never gets a chance to stop
+  # accepting first. /slow outlives the signal so the window is a real one.
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /slow
+      expected_duration: 3s
+    concurrent: 1
+    sigterm_after: 2s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

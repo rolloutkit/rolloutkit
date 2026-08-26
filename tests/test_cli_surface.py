@@ -12,6 +12,7 @@ from preflightkit.cli.main import app
 from preflightkit import __version__
 from preflightkit.config.loader import load_config
 from preflightkit.config.models import Config, Target
+from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.engine.context import RunReport
 from preflightkit.evidence.model import RunOutcome, Session
@@ -138,9 +139,21 @@ def test_explain_documents_every_contract(contract_id: str) -> None:
     assert result.exit_code == 0
     assert "Measures:" in result.output
     assert "Preconditions:" in result.output
-    assert "Verdicts:" in result.output
+    assert "Verdicts (branch" in result.output
     assert "Why it matters:" in result.output
     assert "First step after FAIL:" in result.output
+
+
+@pytest.mark.parametrize("contract_id", [f"SP{number:03}" for number in range(1, 7)])
+def test_explain_names_the_branch_a_report_prints(contract_id: str) -> None:
+    """A verdict is looked up by branch, so the branch has to be on the page."""
+    contract = next(item for item in ALL_CONTRACTS if item.id == contract_id)
+
+    result = runner.invoke(app, ["explain", contract_id])
+
+    for branch, status in contract.BRANCHES.items():
+        assert branch in result.output, f"{contract_id}: {branch} is undocumented"
+        assert status.value in result.output
 
 
 def test_version_flag_includes_package_version_and_commit(monkeypatch) -> None:
@@ -159,6 +172,31 @@ def test_explain_sp004_names_all_drain_strategies() -> None:
     assert "prestop:" in result.output
     assert "in_app:" in result.output
     assert "none:" in result.output
+
+
+def test_explain_sp004_groups_verdicts_under_the_strategy_that_reaches_them() -> None:
+    """Reading the whole table as if it applied to you is the common mistake."""
+    output = runner.invoke(app, ["explain", "SP004"]).output
+    section = output.index("Verdicts (branch, by drain strategy):")
+    prestop = output.index("  prestop:", section)
+    in_app = output.index("  in_app:", prestop)
+    none = output.index("  none:", in_app)
+    shared = output.index("  any strategy:", none)
+
+    assert prestop < output.index("prestop_not_applicable", prestop) < in_app
+    assert in_app < output.index("in_app_listener_closed_early", in_app) < none
+    assert none < output.index("none_uncovered", none) < shared
+    assert shared < output.index("budget_below_teardown_floor", shared)
+
+
+def test_explain_sp005_separates_opt_out_from_unmeasurable() -> None:
+    """SKIP, INCONCLUSIVE and ERROR mean three different things here."""
+    output = runner.invoke(app, ["explain", "SP005"]).output
+
+    assert "SKIP         disabled" in output
+    assert "ERROR        nothing_in_flight" in output
+    assert "INCONCLUSIVE baseline_not_2xx" in output
+    assert "required contract" in output
 
 
 def test_list_contracts_names_required_and_every_strategy() -> None:

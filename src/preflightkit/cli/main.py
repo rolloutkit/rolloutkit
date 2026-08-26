@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -10,6 +11,7 @@ from typing import Annotated
 import anyio
 import typer
 from rich.console import Console
+from rich.padding import Padding
 
 from preflightkit import __version__
 from preflightkit.config.loader import ConfigError, load_config
@@ -17,7 +19,7 @@ from preflightkit.config.models import Config, DrainStrategy
 from preflightkit.config.compose import import_compose, render_import
 from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.base import ContractResult, Status
-from preflightkit.contracts.catalog import CATALOG
+from preflightkit.contracts.catalog import ANY_STRATEGY, CATALOG, Verdict
 from preflightkit.engine.runner import InfrastructureError, run_session
 from preflightkit.evidence.redact import Redactor
 from preflightkit.evidence.model import Session
@@ -281,6 +283,15 @@ def validate(
     )
 
 
+def _print_verdicts(verdicts: Sequence[Verdict], *, indent: str) -> None:
+    """Render one branch per row: the id a report prints, then what it means."""
+    for verdict in verdicts:
+        console.print(f"{indent}{verdict.status:<13}{verdict.branch}")
+        # Padding, not a leading space run: it indents wrapped lines too, so a
+        # long meaning stays visibly attached to its branch.
+        console.print(Padding(verdict.meaning, (0, 0, 0, len(indent) + 2)))
+
+
 @app.command()
 def explain(
     contract_id: Annotated[str, typer.Argument(help="Contract id, for example SP004.")]
@@ -299,9 +310,25 @@ def explain(
     console.print("Preconditions:")
     for condition in doc.preconditions:
         console.print(f"  - {condition}")
-    console.print("Verdicts:")
-    for status, meaning in doc.verdicts:
-        console.print(f"  {status:<12} {meaning}")
+    if doc.strategy_dependent:
+        console.print("Verdicts (branch, by drain strategy):")
+        for strategy in ANY_STRATEGY:
+            rows = [
+                verdict
+                for verdict in doc.verdicts
+                if verdict.applies_to != ANY_STRATEGY and strategy in verdict.applies_to
+            ]
+            if not rows:
+                continue
+            console.print(f"  {strategy}:")
+            _print_verdicts(rows, indent="    ")
+        shared = [v for v in doc.verdicts if v.applies_to == ANY_STRATEGY]
+        if shared:
+            console.print("  any strategy:")
+            _print_verdicts(shared, indent="    ")
+    else:
+        console.print("Verdicts (branch):")
+        _print_verdicts(doc.verdicts, indent="  ")
     console.print(f"Why it matters: {doc.why}")
     if doc.strategy_notes:
         console.print("Drain strategies:")

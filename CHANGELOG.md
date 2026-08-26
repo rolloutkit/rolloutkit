@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Missing probe and target images are pulled once with progress on stderr.
+- `explain` documents every verdict branch by name, with SP004 grouped by the
+  drain strategy that can reach it; the branch catalogue is now enforced against
+  the contracts by test.
 - Readiness is used as the SP005 fallback target when no in-flight path is set.
 
 ### Fixed

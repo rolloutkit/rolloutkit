@@ -117,7 +117,13 @@ def built_images() -> None:
 
 
 @pytest.mark.parametrize("entry", _fixtures(), ids=lambda e: e["name"])
-def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
+def test_fixture_matches_the_matrix(
+    entry: dict, built_images: None, matrix_row: dict
+) -> None:
+    # Filled in as the run progresses, not at the end: `matrix_row` is written
+    # out by `tests/conftest.py` whatever this test does next, so whatever is
+    # in it at the moment of an assertion failure is what the artifact keeps.
+    matrix_row.update(row=entry["name"], config=entry["config"], expect=entry["expect"])
     if entry.get("desktop_only") and platform.system() == "Linux":
         pytest.skip(
             "the fallback proxy branch exists only on Docker Desktop; Linux "
@@ -139,6 +145,7 @@ def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
         text=True,
         timeout=400,
     )
+    matrix_row["exit_code"] = run.returncode
     # Exit code 3 means the experiment never happened (no daemon or the image
     # would not start). A non-2xx baseline now completes the experiment and
     # publishes SP005 INCONCLUSIVE, so it must not be excused here.
@@ -151,6 +158,15 @@ def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
         pytest.fail(f"no JSON report (exit {run.returncode}):\n{run.stderr[-3000:]}")
 
     results = {c["id"]: c for c in report["contracts"]}
+    matrix_row["run_id"] = report.get("run_id", "")
+    matrix_row["actual"] = {
+        contract_id: {
+            "status": result["status"],
+            "branch": result["branch"],
+            "summary": result["summary"],
+        }
+        for contract_id, result in results.items()
+    }
     for contract_id, expectation in entry["expect"].items():
         assert contract_id in results, f"{contract_id} was not evaluated"
         result = results[contract_id]

@@ -78,3 +78,34 @@ failures with the commit that caused each one; what they printed is gone. They
 are five consecutive runs on 2026-08-25 working one Linux CI problem, and
 `32837533489` is the first green run after them; the commits that got there are
 in the history.
+
+## What this file could not answer, and what now can
+
+Everything above is recorded per job. `Docker matrix success 7m09s` is one bit
+for 42 rows, and the question that actually comes up when a row goes red is not
+answered by it: *was this row green before, and on what?* On 2026-08-26 the row
+`in-app-readiness-never-changes` failed on `32b3936` and there was no way to
+tell from this repository whether it had ever passed — the run before it was
+recorded as green, which says only that no row failed, not that this row ran.
+
+So the matrix now writes what each row observed. `tests/conftest.py` appends one
+JSON Lines record per row — the expectation, the status, branch and summary of
+every contract the run produced, the exit code, the duration, and the identity
+of the run (commit, host, CPU count, Docker version, and the Actions run ID and
+attempt). `.github/workflows/ci.yml` uploads it as `matrix-results-<run>-<attempt>`
+with `if: always()`, which is the part that matters: the record worth keeping is
+the one from the red run, and a step that only runs on success would drop it.
+
+The file is one session's evidence — the run truncates it at session start — and
+records are appended as rows finish, so a cancelled or timed-out job still
+leaves the rows it got through. Artifacts are self-contained, so several can be
+concatenated:
+
+```
+jq -r 'select(.row == "in-app-readiness-never-changes")
+       | [.run.commit[0:12], .run.github_run_attempt, .outcome,
+          .actual.SP004.status, .actual.SP004.branch] | @tsv' matrix-results*.jsonl
+```
+
+Artifacts expire on GitHub's schedule (90 days here). What survives past that is
+whatever gets written down, the same rule as everywhere else in this file.

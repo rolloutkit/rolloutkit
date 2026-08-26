@@ -68,3 +68,17 @@ jobs:
         env:
           PREFLIGHTKIT_COMMIT: ${{ github.sha }}
         run: uv run pytest -q -m docker
+
+      # `if: always()` is the whole point: the run worth keeping is the red one.
+      # A row that flips reports one line here and a different one on the next
+      # attempt, and the two together are what says "flaky" rather than
+      # "broken" — a distinction docs/ci-runs.md cannot make, because it is
+      # written before the run.
+      - name: Keep the per-row matrix record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: matrix-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: matrix-results.jsonl
+          if-no-files-found: warn
+          retention-days: 90

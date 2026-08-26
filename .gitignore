@@ -11,3 +11,6 @@ build/
 # The raw JSON corpus at the repository root. The committed per-batch
 # summaries live in docs/measurements/ and are not covered by this.
 /measurements/
+# One session's per-row record of the Docker matrix. CI uploads it as an
+# artifact; a local run keeps its own and it is never worth committing.
+/matrix-results.jsonl

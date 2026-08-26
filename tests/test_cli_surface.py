@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from preflightkit.cli.main import app
 from preflightkit import __version__
-from preflightkit.config.loader import load_config
+from preflightkit.config.loader import ConfigError, load_config
 from preflightkit.config.models import Config, Target
 from preflightkit.contracts import ALL_CONTRACTS
 from preflightkit.contracts.base import ContractResult, Status
@@ -31,6 +31,8 @@ def _clear_env(monkeypatch) -> None:
         "PREFLIGHTKIT_INFLIGHT_PATH",
         "PREFLIGHTKIT_GRACE",
         "PREFLIGHTKIT_DRAIN",
+        "PREFLIGHTKIT_ENV",
+        "PREFLIGHTKIT_ENV_FILE",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -104,6 +106,128 @@ probes:
     assert cli_config.probes.readiness.path == "/cli"
     assert cli_config.deployment.termination_grace_period == 35_000
     assert str(cli_config.deployment.drain.strategy) == "prestop"
+
+
+def test_env_follows_cli_over_env_over_file_over_default(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The same order every other option follows, applied to target.env."""
+    config_path = tmp_path / "preflightkit.yaml"
+    config_path.write_text(
+        "target:\n"
+        "  image: file:image\n"
+        "  port: 7000\n"
+        "  env: {FROM_FILE: file, SHARED: file}\n"
+    )
+    dotenv = tmp_path / "extra.env"
+    dotenv.write_text("# a comment\nSHARED=dotenv\nFROM_DOTENV='quoted value'\n")
+
+    _clear_env(monkeypatch)
+    file_only = load_config(config_path=config_path)
+
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PREFLIGHTKIT_ENV", "SHARED=process FROM_PROCESS=process")
+    monkeypatch.setenv("PREFLIGHTKIT_ENV_FILE", str(dotenv))
+    from_process = load_config(config_path=config_path)
+
+    # The flags are passed explicitly while the same variables still say
+    # something else: the command line has to win over both.
+    from_cli = load_config(
+        config_path=config_path,
+        env_values=["SHARED=cli"],
+        env_files=[dotenv],
+    )
+
+    assert file_only.target.env == {"FROM_FILE": "file", "SHARED": "file"}
+    assert from_process.target.env == {
+        "FROM_FILE": "file",
+        "SHARED": "process",
+        "FROM_PROCESS": "process",
+        "FROM_DOTENV": "quoted value",
+    }
+    assert from_cli.target.env == {
+        "FROM_FILE": "file",
+        "SHARED": "cli",
+        "FROM_DOTENV": "quoted value",
+    }
+
+
+def test_env_file_values_are_redacted_by_name(tmp_path: Path, monkeypatch) -> None:
+    """A dotenv is where credentials live, so its values have to reach redaction."""
+    _clear_env(monkeypatch)
+    dotenv = tmp_path / "secrets.env"
+    dotenv.write_text("DATABASE_PASSWORD=hunter2\nALLOWED_HOSTS=*\n")
+
+    config = load_config(
+        image="fixture:latest", port=8000, env_files=[dotenv], cwd=tmp_path
+    )
+
+    assert "hunter2" in config.secret_values()
+    assert "*" not in config.secret_values()
+
+
+def test_env_can_be_referenced_from_the_config_it_is_passed_with(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _clear_env(monkeypatch)
+    config_path = tmp_path / "preflightkit.yaml"
+    config_path.write_text(
+        "target: {image: 'fixture:${TAG}', port: 8000, env: {TAG: '${TAG}'}}\n"
+    )
+
+    config = load_config(config_path=config_path, env_values=["TAG=v9"])
+
+    assert config.target.image == "fixture:v9"
+
+
+def test_malformed_env_names_the_argument_it_rejected(tmp_path: Path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    with pytest.raises(ConfigError, match="KEY=VALUE"):
+        load_config(image="fixture:latest", port=8000, env_values=["ALLOWED_HOSTS"])
+    with pytest.raises(ConfigError, match="empty variable name"):
+        load_config(image="fixture:latest", port=8000, env_values=["=1"])
+
+
+def test_missing_env_file_is_a_config_error_not_a_traceback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _clear_env(monkeypatch)
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "--image",
+            "fixture:latest",
+            "--port",
+            "8000",
+            "--env-file",
+            str(tmp_path / "absent.env"),
+        ],
+    )
+    assert result.exit_code == 2
+    assert "env_file not found" in result.output
+
+
+def test_env_reaches_the_target_through_the_command_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The gap item 4 closes: a Django target needs ALLOWED_HOSTS and no config."""
+    _clear_env(monkeypatch)
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "--image",
+            "fixture:latest",
+            "--port",
+            "8000",
+            "--env",
+            "ALLOWED_HOSTS=*",
+            "--env",
+            "DEBUG=0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
 
 
 def test_inflight_path_builds_the_primary_contract(tmp_path: Path, monkeypatch) -> None:

@@ -137,6 +137,22 @@ def test(
         DrainStrategy | None,
         typer.Option("--drain", envvar="PREFLIGHTKIT_DRAIN"),
     ] = None,
+    env: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--env",
+            envvar="PREFLIGHTKIT_ENV",
+            help="KEY=VALUE for the target container; repeat for more.",
+        ),
+    ] = None,
+    env_file: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--env-file",
+            envvar="PREFLIGHTKIT_ENV_FILE",
+            help="Read KEY=VALUE lines for the target; repeat for more. --env wins.",
+        ),
+    ] = None,
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", envvar="PREFLIGHTKIT_CONFIG")
     ] = None,
@@ -173,6 +189,8 @@ def test(
             inflight_path=inflight_path,
             grace=grace,
             drain=str(drain) if drain is not None else None,
+            env_values=env,
+            env_files=env_file,
         )
     except ConfigError as exc:
         _config_error(exc)
@@ -218,6 +236,22 @@ def measure(
         DrainStrategy | None,
         typer.Option("--drain", envvar="PREFLIGHTKIT_DRAIN"),
     ] = None,
+    env: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--env",
+            envvar="PREFLIGHTKIT_ENV",
+            help="KEY=VALUE for the target container; repeat for more.",
+        ),
+    ] = None,
+    env_file: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--env-file",
+            envvar="PREFLIGHTKIT_ENV_FILE",
+            help="Read KEY=VALUE lines for the target; repeat for more. --env wins.",
+        ),
+    ] = None,
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", envvar="PREFLIGHTKIT_CONFIG")
     ] = None,
@@ -239,6 +273,8 @@ def measure(
             inflight_path=inflight_path,
             grace=grace,
             drain=str(drain) if drain is not None else None,
+            env_values=env,
+            env_files=env_file,
         )
     except ConfigError as exc:
         _config_error(exc)
@@ -261,6 +297,8 @@ def validate(
     inflight_path: Annotated[str | None, typer.Option("--inflight-path")] = None,
     grace: Annotated[str | None, typer.Option("--grace")] = None,
     drain: Annotated[DrainStrategy | None, typer.Option("--drain")] = None,
+    env: Annotated[list[str] | None, typer.Option("--env")] = None,
+    env_file: Annotated[list[Path] | None, typer.Option("--env-file")] = None,
 ) -> None:
     """Validate configuration without contacting Docker."""
     try:
@@ -272,6 +310,8 @@ def validate(
             inflight_path=inflight_path,
             grace=grace,
             drain=str(drain) if drain is not None else None,
+            env_values=env,
+            env_files=env_file,
         )
     except ConfigError as exc:
         _config_error(exc)

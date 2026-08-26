@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,24 @@ def read_env_file(path: Path) -> dict[str, str]:
     return result
 
 
+def parse_env_pairs(pairs: Sequence[str]) -> dict[str, str]:
+    """Turn repeated ``--env KEY=VALUE`` into a mapping, in the order given.
+
+    A later ``--env`` for the same key wins, which is what a reader of the
+    command line expects and what Docker does.
+    """
+    result: dict[str, str] = {}
+    for item in pairs:
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise ConfigError(f"--env expects KEY=VALUE, got {item!r}")
+        key = key.strip()
+        if not key:
+            raise ConfigError(f"--env has an empty variable name: {item!r}")
+        result[key] = value
+    return result
+
+
 def find_config_file(start: Path) -> Path | None:
     for name in DEFAULT_CONFIG_NAMES:
         candidate = start / name
@@ -81,6 +100,8 @@ def load_config(
     inflight_path: str | None = None,
     grace: str | None = None,
     drain: str | None = None,
+    env_values: Sequence[str] | None = None,
+    env_files: Sequence[Path] | None = None,
     cwd: Path | None = None,
 ) -> Config:
     """Build the effective config. Raises ConfigError with a usable message."""
@@ -90,6 +111,28 @@ def load_config(
     env = dict(os.environ)
     if config_path is None and env.get("PREFLIGHTKIT_CONFIG"):
         config_path = Path(env["PREFLIGHTKIT_CONFIG"])
+
+    # The process environment stands in for the flags when they are absent, the
+    # way it does for every other option. Split exactly as the CLI splits them,
+    # so `PREFLIGHTKIT_ENV` means the same thing to `validate` as to `test`.
+    if env_values is None:
+        env_values = env.get("PREFLIGHTKIT_ENV", "").split()
+    if env_files is None:
+        env_files = [
+            Path(item)
+            for item in env.get("PREFLIGHTKIT_ENV_FILE", "").split(os.pathsep)
+            if item
+        ]
+
+    # Inline values beat files, both beat the config file's own `env_file`, and
+    # both are visible to ${VAR} expansion the way a file's env_file already is
+    # — otherwise a value passed on the command line could not be referenced
+    # from the config it was passed alongside.
+    command_line_env: dict[str, str] = {}
+    for item in env_files:
+        command_line_env.update(read_env_file(Path(item)))
+    command_line_env.update(parse_env_pairs(env_values))
+    env.update(command_line_env)
     path = config_path or find_config_file(cwd)
     if config_path is not None and not config_path.is_file():
         raise ConfigError(f"config file not found: {config_path}")
@@ -123,6 +166,12 @@ def load_config(
 
     raw = _expand(raw, env)
     target = raw["target"]
+
+    # Applied after expansion: a ${...} that survived the shell was meant
+    # literally. Only the target is touched — a dependency in `services` keeps
+    # its own declared environment, exactly as its own env_file does.
+    if command_line_env:
+        target["env"] = {**(target.get("env") or {}), **command_line_env}
 
     # Explicit command-line values win over process environment. Both override
     # the file, while model defaults fill anything the file omits.

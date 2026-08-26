@@ -29,6 +29,18 @@
 #             process separates the per-process cost (image preparation,
 #             dependency resolution) from the per-prediction cost, which is the
 #             only way to say what a second prediction would actually add.
+#   sweep-*   The same fallback path at readiness delays of 1, 2, 3, 5 and
+#             10ms. `fallback` and `slow` are the easy ends of the question and
+#             both would come out the same under any threshold worth having.
+#             What a threshold has to be judged on is the region where services
+#             actually sit, and whether a service there gets the same answer
+#             twice. These configurations are generated rather than committed:
+#             they are one environment variable away from the fixture beside
+#             them, and a checked-in copy is a second place for the image name
+#             to go stale. The range is not arbitrary: measured jitter on
+#             one macOS host ran from 0.145ms to 1.155ms, which puts the
+#             ratio's own boundary anywhere between p50 1.5ms and 11.6ms.
+#             A service in that band is decided by the machine.
 #
 # The fallback batch runs from an empty directory on purpose. `test` discovers
 # `preflightkit.yaml` from the working directory, and this repository has one at
@@ -119,6 +131,29 @@ run_batch full     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/pre
 run_batch fallback "$empty_dir" -- pfk-fixture-good --port 8000 --ready-url /ready
 run_batch slow     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/readiness-fallback-slow.yaml"
 run_batch repeat3  "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml" -- --repeat 3
+
+# The boundary sweep. Written next to the readings they produce, so a batch
+# directory says which delay it was taken at without a lookup elsewhere.
+sweep_dir="$outroot/.sweep"
+rm -rf "$sweep_dir" && mkdir -p "$sweep_dir" || exit 2
+for ms in 1 2 3 5 10; do
+  seconds="$(python3 -c "print($ms / 1000)")"
+  cat > "$sweep_dir/$ms.yaml" <<YAML
+version: 1
+target:
+  image: pfk-fixture-good
+  port: 8000
+  env: {READINESS_DELAY_SECONDS: "$seconds"}
+deployment:
+  termination_grace_period: 30s
+  drain: {strategy: none}
+probes:
+  readiness: {path: /ready, expected_status: 200}
+contracts:
+  startup: {budget: 15s}
+YAML
+  run_batch "sweep-${ms}ms" "$repo_root" -c "$sweep_dir/$ms.yaml"
+done
 
 for index in "${!extra_paths[@]}"; do
   run_batch "${extra_labels[$index]}" "$repo_root" -c "${extra_paths[$index]}"

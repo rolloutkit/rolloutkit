@@ -16,6 +16,10 @@ on:
         description: "Runs per batch"
         required: false
         default: "8"
+      configs:
+        description: "Extra batches, space-separated LABEL=PATH (repo-relative)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -58,7 +62,19 @@ jobs:
       - name: Run the measurement set
         env:
           PREFLIGHTKIT_COMMIT: ${{ github.sha }}
-        run: scripts/measure-set.sh -n "${{ inputs.runs }}"
+          # Not interpolated into the command line. A `${{ }}` inside `run:` is
+          # substituted before bash sees it, so a dispatch input there is a shell
+          # injection with a form around it. Through the environment it is data.
+          EXTRA_CONFIGS: ${{ inputs.configs }}
+        run: |
+          extra=()
+          for pair in $EXTRA_CONFIGS; do
+            case "$pair" in
+              *=*) extra+=(-c "$pair") ;;
+              *) echo "measure: --configs wants LABEL=PATH, got '$pair'" >&2; exit 2 ;;
+            esac
+          done
+          scripts/measure-set.sh -n "${{ inputs.runs }}" "${extra[@]+"${extra[@]}"}"
 
       - name: Upload the readings
         if: always()

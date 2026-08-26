@@ -1266,3 +1266,138 @@ runner-dependent branch changes: SP006 thin margin now uses a 25s exit inside a
 The immediate-close fixture also closes its listener synchronously in the
 SIGTERM handler. These changes preserve the named branches while moving their
 boundaries well outside host scheduling jitter.
+
+## Prediction duration and phase distribution (2026-08-26; preflightkit commit: 68816b8ecf7e3feda529dcda605fdb8ee4f52dd4 plus the uncommitted phase-progress change)
+
+The spec tolerates a pipeline step of roughly +40s and refuses +5 minutes. That
+number had never been measured since the sidecar, the teardown calibration and
+the traffic baseline were added, so this section measures it and takes the
+phase distribution apart. Timing changes nothing about the verdicts; the
+uncommitted change in the tree adds stderr progress lines and does not touch
+the measurement path.
+
+### What this run could and could not cover
+
+Two parts of the requested set are missing and are not estimated here.
+
+Native Linux was not reachable from this session. Every number below is Docker
+Desktop 29.7.2 on Darwin 25.5.0, arm64, 11 CPUs — the same host class as the
+macOS column in the sidecar sections above, not the `Linux 6.8.0-134-generic`
+machine those sections used. Container create/start and teardown are the phases
+most likely to move on native Linux, and both are small here; the phase that
+dominates is request duration, which is a property of the target.
+
+The service-a and service-b measurement configs are not in this repository —
+`git status --ignored` shows only `__pycache__` and `spikes/` — so the two real
+images were replaced by the fixture that has the same shape: a 5s endpoint with
+ten concurrent in-flight requests. Their runs are still owed.
+
+### Phase distribution
+
+Medians of three runs each, milliseconds, warm image cache. `fastest` is the
+lightest fixture in the tree: readiness-only, `contracts.inflight: null`. The
+last row is one invocation with `--repeat 3`, not three invocations.
+
+| Case | Total | Probe | Deps | Target start | Calib | Baseline | Experiment | Teardown |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `identical-readiness-health` (fastest) | 1848 | 854 | 0 | 232 | 80 | 8 | 467 | 208 |
+| `kills-inflight` (5s endpoint) | 18961 | 858 | 0 | 306 | 73 | 15118 | 2407 | 200 |
+| `good-fastapi-prestop` (5s endpoint) | 22103 | 856 | 0 | 307 | 75 | 15092 | 5551 | 214 |
+| `good-fastapi-prestop --repeat 3` | 65979 | 2440 | 0 | 901 | 217 | 45335 | 16443 | 633 |
+| `django-shipped` (1s grace, calibrating) | 7988 | 842 | 0 | 234 | 2912 | 1723 | 2046 | 208 |
+| two cached dependencies | 2167 | 855 | 149 | 246 | 104 | 7 | 479 | 377 |
+
+Ranges over the three runs were tight: 1811–1855, 18934–18976, 22062–22106,
+7447–8724, 2161–2226. Only the calibrating fixture varied by more than 50ms,
+and its variance is in the calibration phase itself (2874–3690).
+
+Two cold-cache cases, one run each. A missing probe image costs
+`probe_image_preparation` 3768 against a warm 854. A missing target image costs
+`target_start` 3872 against a warm 232; the pull is inside that phase, not a
+phase of its own.
+
+### The number that matters
+
+A single prediction against these images is **1.8s to 22.1s** — well inside the
++40s tolerance and nowhere near five minutes. The threshold is crossed only by
+`--repeat 3`, which measured **66.0s**.
+
+The distribution is not evenly spread and does not scale with the tool. Fixed
+per-run overhead — probe, target start, teardown, and the uncalibrated pid1
+probe — is about 1.4s and barely moves between cases. Everything above that is
+the target's own request duration:
+
+    baseline_ms ~= 3 x request_duration
+
+25 baseline samples are issued concurrently, so they cost one request duration,
+not 25. The other two come from `verify_keep_alive`, which performs two
+*sequential* requests on one connection. For the 5s endpoint that predicts
+15.0s and the measurement is 15.09s across nine runs, spread 32ms. On the
+`/work` fixture, whose observed duration is about 0.57s, it predicts 1.71s and
+measures 1.72s.
+
+That relation is what decides whether the spec threshold is ever at risk: a
+target whose in-flight endpoint takes longer than about 13s pushes a single
+prediction past 40s, regardless of anything preflightkit does.
+
+### Shortening options, priced but not implemented
+
+Each saving below is measured, not estimated. None of them is implemented.
+
+**Caching the teardown calibration.** Calibration only runs when the shutdown
+budget is 2s or less; above that it short-circuits and the phase contains just
+the pid1 probe. The two states are visible directly: 2912ms median when it
+calibrates, 73–80ms when it does not. So caching saves **~2.9s per run, and
+only for short-budget configurations** — none of the real-image profiles
+measured here. On a `--repeat 3` of a short-budget config it would save two of
+the three calibrations, about 5.8s. Its correctness cost is the harder half: the
+floor is a property of host and Docker version, both of which a TTL can only
+approximate.
+
+**Reducing the baseline probe count.** This one does not pay. The 25 samples are
+concurrent, so cutting them to 10 removes concurrency, not wall time — the
+predicted and measured saving is **~0ms**. The reducible cost is elsewhere in
+the same phase: `verify_keep_alive`'s two sequential requests are
+**10.06s of the 15.09s baseline (67%), and 46% of the whole 22.1s run**.
+Proving keep-alive with one request instead of two would save one request
+duration (5.0s here); overlapping the check with the concurrent burst would save
+both (10.1s), taking the run from 22.1s to about 12.0s. This is the largest
+saving available anywhere in the pipeline and it was not on the list.
+
+**Starting the probe container in parallel with dependencies.** Bounded by the
+smaller of the two phases. Warm probe preparation is 855ms; two cached
+dependency containers cost **149ms**, because `services:` currently starts
+containers without waiting for anything. The saving today is therefore **~149ms
+on a 2.2s run**. It becomes worth revisiting when `wait_for.tcp` lands and the
+dependencies phase starts costing seconds — at that point the ceiling rises to
+the full 855ms of probe preparation.
+
+**Not on the list, but measured:** `--repeat N` repeats the whole per-run
+envelope. Across the 66.0s repeat-3 run that is 2440ms of probe preparation and
+217ms of calibration for work whose result is identical each time. Reusing one
+sidecar across repeats would save about **1.6s of 66.0s (2.4%)** — small, and
+it would couple runs that are currently independent.
+
+Ranked by measured saving: the keep-alive check (10.1s) is worth more than
+everything else on the list combined; calibration caching (2.9s) applies to a
+minority of configurations; parallel probe start (0.15s) is noise until
+dependencies wait for readiness.
+
+### First-run experience
+
+Before this session the only progress line in the tool was the probe-image pull,
+so the *warm* path — the common one — printed nothing at all between the command
+and the report: 22.5s of an apparently hung terminal on the 5s fixture. Phases
+are now announced on stderr as they begin, with stdout left machine-clean, and
+`--repeat` numbers them. A cold first run reads:
+
+    starting the traffic probe
+    pulling probe image (~50MB, once): python:3.12-slim
+    starting the target and waiting for readiness: traefik/whoami
+    pulling target image (once): traefik/whoami
+    measuring the baseline: 25 requests plus keep-alive
+    sending SIGTERM and observing the shutdown
+    removing the containers and the network
+
+Calibration announces itself only when it will actually run, so the line never
+names a phase that short-circuits.

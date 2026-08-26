@@ -180,10 +180,12 @@ def accept_window_cause(report: RunReport) -> str | None:
     nothing more: the probe samples every `accept_probe_interval_ms`, so a
     listener that closed at T0 leaves its last accept anywhere inside the
     interval before it, and the sign of the number is an artefact of where the
-    sampling grid fell. Further back than one interval is a different statement.
-    The probe had already stopped being accepted while the process was still
-    running normally, which means nothing after T0 was observed and the drain
-    window was never measured at all.
+    sampling grid fell. Further back than one interval is a different statement:
+    the probe was not getting connections accepted while the process was still
+    running normally, so nothing it did after T0 was observed and the drain
+    window was never measured at all. Why it was not — see
+    `accept_window_unmeasured_reason`, which reads the interval the window is
+    missing from rather than assuming one.
 
     Reporting that case as a listener that "closed -217ms after T0" is a
     stopwatch reading the tool does not have. It is the same refusal SP005's
@@ -193,18 +195,27 @@ def accept_window_cause(report: RunReport) -> str | None:
     if window is None:
         return "never_accepted"
     interval = report.accept_probe_interval_ms or ACCEPT_PROBE_INTERVAL_MS
-    return None if window >= -interval else "stopped_before_t0"
+    return None if window >= -interval else "last_accept_before_t0"
 
 
 def accept_window_unmeasured_reason(report: RunReport, cause: str) -> str:
     """What to tell the reader, in the terms the evidence actually supports.
 
-    One branch, and the mechanism named only when the refusals name it. Every
-    attempt after the last accepted one failed to complete a handshake, and how
-    it failed separates the two cases: a dropped SYN times out, which is a
-    listening socket whose accept queue is full, and an RST is refused, which is
-    no listening socket at all. Where neither dominates, the wording stays at the
-    fact both share.
+    One branch, and the mechanism named only when the evidence names it. What
+    settles it is the interval the window is missing from — between the last
+    accepted connection and T0 — and what the probe did inside it.
+
+    Nothing inside it is the commonest case and the least obvious one: the probe
+    is serial, so an attempt that connects and then waits out its response
+    timeout blocks the next one. Under a saturated target that wait can span the
+    signal, and then the probe was not being refused before T0, it was busy. The
+    refusals that follow are from a socket already closed and say nothing about
+    the interval, which is why they are not counted here.
+
+    Where the probe did sample the interval, how those attempts failed separates
+    the other two: a dropped SYN times out, which is a listening socket whose
+    accept queue is full, and an RST is refused, which is no listening socket at
+    all.
     """
     if cause == "never_accepted":
         return (
@@ -212,54 +223,79 @@ def accept_window_unmeasured_reason(report: RunReport, cause: str) -> str:
             "accept window to hold against the declared in-app window; check "
             "that target.port is the port the application listens on"
         )
-    unanswered, refused = _refusals_after_last_accept(report)
-    mechanism = (
-        "probe saturated the backlog"
-        if unanswered > refused
-        else "the probe stopped being accepted before T0"
-    )
+    unanswered, refused = _attempts_before_t0_after_last_accept(report)
+    mechanism = _unmeasured_mechanism(unanswered, refused)
     interval = report.accept_probe_interval_ms or ACCEPT_PROBE_INTERVAL_MS
     window = report.accept_window_ms or 0.0
     return (
-        f"{mechanism} — accept window not measured: the last connection the "
-        f"probe got accepted was {abs(window):.0f}ms before T0, further back "
-        f"than the {interval}ms probe interval, so what the listener did after "
-        "the signal was never observed. The raw accept_window_ms is in evidence"
+        f"{_MECHANISM_PROSE[mechanism]} — accept window not measured: the last "
+        f"connection the probe got accepted was {abs(window):.0f}ms before T0, "
+        f"further back than the {interval}ms probe interval, so what the listener "
+        "did after the signal was never observed. The raw accept_window_ms is in "
+        "evidence"
     )
 
 
-def _refusals_after_last_accept(report: RunReport) -> tuple[int, int]:
-    """Attempts after T2, split by how the peer turned them away.
+_MECHANISM_PROSE = {
+    "probe_blocked": (
+        "the probe was still waiting on its last accepted connection when the "
+        "signal landed"
+    ),
+    "backlog_saturated": "probe saturated the backlog",
+    "listener_gone": "the probe stopped being accepted before T0",
+}
 
-    Every attempt started after the last accepted one failed to connect — if one
-    had connected it would be the last accepted one instead — so the two counts
-    below are the whole population.
+
+def _unmeasured_mechanism(unanswered: int, refused: int) -> str:
+    if unanswered == 0 and refused == 0:
+        return "probe_blocked"
+    return "backlog_saturated" if unanswered > refused else "listener_gone"
+
+
+def _attempts_before_t0_after_last_accept(report: RunReport) -> tuple[int, int]:
+    """Attempts that sampled the missing interval, split by how they failed.
+
+    Only the interval between the last accepted connection and T0 counts. An
+    attempt after T0 is describing the shutdown, or the exit, which is the thing
+    this window failed to measure — folding those in would let post-mortem
+    refusals name a mechanism for a stretch of time they were never in.
+
+    The two counts are the whole population of that interval: an attempt that
+    connected would be the last accepted one instead, and every outcome other
+    than these two sets `connected_ns`.
     """
     t2 = report.last_accepted_ns
-    if t2 is None:
+    t0 = report.sigterm_ns
+    if t2 is None or t0 is None:
         return 0, 0
-    after = [
+    outcomes = [
         attempt.outcome
         for attempt in report.accept_attempts
-        if attempt.started_ns > t2
+        if t2 < attempt.started_ns < t0
     ]
     return (
-        sum(1 for outcome in after if outcome is AcceptOutcome.TIMEOUT),
-        sum(1 for outcome in after if outcome is AcceptOutcome.REFUSED),
+        sum(1 for outcome in outcomes if outcome is AcceptOutcome.TIMEOUT),
+        sum(1 for outcome in outcomes if outcome is AcceptOutcome.REFUSED),
     )
 
 
 def accept_window_resolution_evidence(report: RunReport) -> dict[str, Any]:
     """The numbers the accept-window gate decided on, kept whatever it decided."""
-    unanswered, refused = _refusals_after_last_accept(report)
+    unanswered, refused = _attempts_before_t0_after_last_accept(report)
+    cause = accept_window_cause(report)
     return {
         "accept_window_ms": report.accept_window_ms,
         "probe_interval_ms": report.accept_probe_interval_ms
         or ACCEPT_PROBE_INTERVAL_MS,
         "t2_last_accepted_offset_ms": report.offset_ms(report.last_accepted_ns),
-        "unanswered_after_last_accept": unanswered,
-        "refused_after_last_accept": refused,
-        "cause": accept_window_cause(report),
+        "unanswered_before_t0": unanswered,
+        "refused_before_t0": refused,
+        "cause": cause,
+        "mechanism": (
+            _unmeasured_mechanism(unanswered, refused)
+            if cause == "last_accept_before_t0"
+            else None
+        ),
     }
 
 

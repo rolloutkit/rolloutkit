@@ -181,17 +181,15 @@ def test_terminal_prints_accept_window_with_its_resolution() -> None:
     assert "+1600ms (±50ms)" in console.export_text()
 
 
-def _after_last_accept(
-    report: RunReport, *, unanswered: int = 0, refused: int = 0
+def _attempts_from(
+    report: RunReport, started: int, *, unanswered: int = 0, refused: int = 0
 ) -> RunReport:
-    """Everything the probe tried once it stopped getting accepted.
+    """Probe attempts every 50ms from `started`, which is what the probe does.
 
-    Each attempt is 50ms after the last, which is what the probe does; the
-    outcomes are what the peer did with them. TIMEOUT is a dropped SYN, which is
-    a listening socket whose accept queue is full; REFUSED is an RST, which is no
-    listening socket at all.
+    The outcomes are what the peer did with them. TIMEOUT is a dropped SYN, which
+    is a listening socket whose accept queue is full; REFUSED is an RST, which is
+    no listening socket at all.
     """
-    started = max(attempt.started_ns for attempt in report.accept_attempts)
     outcomes = [AcceptOutcome.TIMEOUT] * unanswered + [AcceptOutcome.REFUSED] * refused
     for index, outcome in enumerate(outcomes, start=1):
         started += 50_000_000
@@ -205,6 +203,14 @@ def _after_last_accept(
             )
         )
     return report
+
+
+def _after_last_accept(
+    report: RunReport, *, unanswered: int = 0, refused: int = 0
+) -> RunReport:
+    """Everything the probe tried between the last accepted connection and T0."""
+    started = max(attempt.started_ns for attempt in report.accept_attempts)
+    return _attempts_from(report, started, unanswered=unanswered, refused=refused)
 
 
 def _unmeasured(strategy: DrainStrategy, **counts) -> RunReport:
@@ -250,15 +256,55 @@ def test_sp004_unmeasured_accept_window_keeps_the_raw_value() -> None:
     result = _resolved(_unmeasured(DrainStrategy.IN_APP, unanswered=5, refused=1))
     precondition = result.evidence["precondition"]
     assert precondition["accept_window_ms"] == -2200
-    assert precondition["cause"] == "stopped_before_t0"
+    assert precondition["cause"] == "last_accept_before_t0"
+    assert precondition["mechanism"] == "backlog_saturated"
     assert (
-        precondition["unanswered_after_last_accept"],
-        precondition["refused_after_last_accept"],
+        precondition["unanswered_before_t0"],
+        precondition["refused_before_t0"],
     ) == (5, 1)
     assert result.evidence["unresolved_candidate"] == {
         "status": "FAIL",
         "branch": "in_app_listener_closed_early",
     }
+
+
+def test_sp004_no_sample_between_the_last_accept_and_t0_says_the_probe_was_busy() -> None:
+    """The probe is serial: one slow attempt is one unsampled stretch of time.
+
+    Nothing here was refused before the signal, so nothing here may be reported
+    as the probe being refused before the signal.
+    """
+    report = _unmeasured(DrainStrategy.IN_APP)
+    assert not [
+        attempt
+        for attempt in report.accept_attempts
+        if attempt.connected_ns is None and attempt.started_ns < report.sigterm_ns
+    ]
+    result = _resolved(report)
+    assert (result.status, result.branch) == (
+        Status.INCONCLUSIVE,
+        "accept_window_unmeasured",
+    )
+    assert result.summary.startswith(
+        "the probe was still waiting on its last accepted connection"
+    )
+    assert result.evidence["precondition"]["mechanism"] == "probe_blocked"
+
+
+def test_sp004_refusals_after_t0_do_not_name_a_mechanism_before_it() -> None:
+    """Post-mortem refusals describe the exit, not the interval that was missed.
+
+    Counting them would let three RSTs from an already-dead process report the
+    listener as gone before a signal it was still serving through.
+    """
+    report = _unmeasured(DrainStrategy.IN_APP)
+    _attempts_from(report, report.sigterm_ns, refused=3)
+    result = _resolved(report)
+    assert result.evidence["precondition"]["mechanism"] == "probe_blocked"
+    assert (
+        result.evidence["precondition"]["refused_before_t0"],
+        result.evidence["precondition"]["unanswered_before_t0"],
+    ) == (0, 0)
 
 
 def test_sp004_never_accepted_is_inconclusive_not_a_zero_window() -> None:

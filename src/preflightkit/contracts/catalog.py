@@ -338,11 +338,13 @@ CATALOG: dict[str, ContractDoc] = {
                 "INCONCLUSIVE",
                 "accept_window_ms is not a listener-close time in this run. Either "
                 "the probe was never accepted at all, or its last accepted "
-                "connection lands further before T0 than one probe interval — the "
-                "probe had stopped getting through while the process was still "
-                "serving, so nothing it did after the signal was observed. Reported "
-                "as the negative number it is, in evidence, rather than as a "
-                "listener that closed before it was asked to.",
+                "connection lands further before T0 than one probe interval, so "
+                "nothing it did after the signal was observed. The summary names "
+                "which: the probe still waiting on that connection when the signal "
+                "landed, a saturated accept queue dropping its SYNs, or a listener "
+                "already gone — whichever the attempts between that last accept and "
+                "T0 support. Reported as the negative number it is, in evidence, "
+                "rather than as a listener that closed before it was asked to.",
                 ("in_app",),
             ),
             # Classified decision_unit: the branch compares a declared

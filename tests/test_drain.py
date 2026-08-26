@@ -26,7 +26,12 @@ def _report(
     readiness: str | None = "status_change",
     shutdown_ms: float = 500,
     reset: bool = False,
+    started_ms: float | None = None,
 ) -> RunReport:
+    """`accept_ms` is when the handshake completed; `started_ms` when it was asked
+    for. They are separate parameters because SP004 keys the reset branch on the
+    second one, and a builder that derived it from the first could not write a run
+    where the two fall on opposite sides of the window."""
     drain = (
         Drain(strategy=strategy, in_app_window=f"{window_ms}ms")
         if strategy is DrainStrategy.IN_APP
@@ -47,9 +52,14 @@ def _report(
     report.accept_probe_interval_ms = 50
     report.accept_refused_streak_target = 3
     connected = report.sigterm_ns + int(accept_ms * 1_000_000)
+    started = (
+        connected - 1_000_000
+        if started_ms is None
+        else report.sigterm_ns + int(started_ms * 1_000_000)
+    )
     report.accept_attempts = [
         AcceptAttempt(
-            started_ns=connected - 1_000_000,
+            started_ns=started,
             connected_ns=connected,
             finished_ns=connected + 1_000_000,
             outcome=AcceptOutcome.RESET if reset else AcceptOutcome.RESPONSE,
@@ -130,8 +140,66 @@ def test_none_always_warns() -> None:
 
 
 def test_accept_then_reset_fails_for_in_app() -> None:
-    result = _result(_report(DrainStrategy.IN_APP, reset=True))
+    """Asked for inside the window, handshaken after it: still the failure.
+
+    The two offsets are deliberately on opposite sides of the 1200ms boundary.
+    The caller asked at +900ms, while the application had 300ms of its declared
+    window left to run, and was answered with a reset. That the handshake did
+    not complete until +1600ms is the target's own accept latency; charging the
+    caller for it would move a connection across the boundary because the
+    target was busy, which is the thing being measured.
+    """
+    report = _report(DrainStrategy.IN_APP, reset=True, started_ms=900)
+    result = _result(report)
     assert (result.status, result.branch) == (Status.FAIL, "accept_then_reset")
+    assert result.actual["accept_then_reset_in_window"] == 1
+    assert result.actual["accept_then_reset_after_window"] == 0
+    assert "+900ms" in result.summary
+
+
+def test_a_reset_asked_for_after_the_window_is_evidence_not_a_verdict() -> None:
+    """The population `fixtures/backlog-reset/` exists for.
+
+    Closing a listening socket resets whatever the kernel has already
+    handshaken into its accept queue. A server that served its whole window and
+    then closed produces this on every run under load, and it is not a defect:
+    the connection was opened after the application had done what it declared.
+    """
+    result = _result(_report(DrainStrategy.IN_APP, reset=True, started_ms=1500))
+    assert (result.status, result.branch) == (Status.PASS, "in_app_covered")
+    assert result.actual["accept_then_reset"] == 1
+    assert result.actual["accept_then_reset_in_window"] == 0
+    assert result.actual["accept_then_reset_after_window"] == 1
+    assert any("after the 1200ms window had already closed" in n for n in result.notes)
+
+
+def test_a_reset_asked_for_on_the_last_millisecond_is_inside_the_window() -> None:
+    """The boundary is closed at the top: a window of 1200ms includes +1200ms."""
+    inside = _result(_report(DrainStrategy.IN_APP, reset=True, started_ms=1200))
+    assert (inside.status, inside.branch) == (Status.FAIL, "accept_then_reset")
+    outside = _result(_report(DrainStrategy.IN_APP, reset=True, started_ms=1200.001))
+    assert outside.branch == "in_app_covered"
+
+
+def test_the_reset_evidence_carries_both_offsets_and_the_window() -> None:
+    """The verdict has to be checkable from the report on its own.
+
+    Before this, the window the resets were classified against appeared only
+    inside the `expected` sentence, and only `connected_offset_ms` was
+    published — so a reader had a list of events, a prose boundary, and the
+    wrong one of the two timestamps needed to reproduce the branch.
+    """
+    result = _result(_report(DrainStrategy.IN_APP, reset=True, started_ms=900))
+    assert result.evidence["in_app_window_ms"] == 1200
+    (event,) = result.evidence["accept_then_reset"]
+    assert event["started_offset_ms"] == pytest.approx(900)
+    assert event["connected_offset_ms"] == pytest.approx(1600)
+    assert event["started_offset_ms"] < result.evidence["in_app_window_ms"]
+
+
+def test_the_window_is_not_published_for_strategies_that_do_not_declare_one() -> None:
+    assert _result(_report(DrainStrategy.NONE)).evidence["in_app_window_ms"] is None
+    assert _result(_report(DrainStrategy.PRESTOP)).evidence["in_app_window_ms"] is None
 
 
 def test_none_always_warns_even_when_a_connection_resets() -> None:
@@ -381,7 +449,7 @@ def test_sp004_budget_precondition_is_inconclusive() -> None:
 #: guaranteed to reach — so the pair above it is pinned like every other.
 _PRECEDENCE_PAIRS = {
     ("accept_then_reset", "in_app_listener_closed_early"): dict(
-        accept_ms=700, reset=True
+        accept_ms=700, started_ms=600, reset=True
     ),
     ("in_app_listener_closed_early", "in_app_readiness_not_signaled"): dict(
         accept_ms=700, readiness=None
@@ -426,7 +494,9 @@ def test_a_reset_outranks_an_unsignalled_readiness() -> None:
     `in_app_readiness_not_signaled` is a drain that worked and could not be
     watched. Reporting the advisory would call a lost connection a suggestion.
     """
-    result = _result(_report(DrainStrategy.IN_APP, reset=True, readiness=None))
+    result = _result(
+        _report(DrainStrategy.IN_APP, reset=True, started_ms=900, readiness=None)
+    )
     assert (result.status, result.branch) == (Status.FAIL, "accept_then_reset")
     assert result.actual["accept_then_reset"] == 1
     assert result.actual["readiness_drop_mode"] == "never"

@@ -33,6 +33,8 @@ images:
     context: go-http/nosignal
   - name: pfk-fixture-drain-window
     context: drain-window
+  - name: pfk-backlog-reset
+    context: backlog-reset
 
 fixtures:
   - name: readiness-fallback-slow
@@ -411,12 +413,48 @@ fixtures:
     image: pfk-fixture-drain-window
     config: drain-window/reset-in-app.yaml
     description: >
-      A post-T0 socket completes its handshake and is then reset without any
-      response. This overrides the in-app strategy verdict.
+      A socket opened while the declared window is still open completes its
+      handshake and is then reset without any response. This overrides the
+      in-app strategy verdict. The branch keys on when the connection was
+      opened, and this fixture stays on the failing side of that boundary by a
+      wide margin: over 24 runs across both hosts all 480 resets started between
+      +12ms and +1019ms, against a 1200ms window.
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}
       SP004: {status: FAIL, branch: accept_then_reset}
+      SP005: {status: SKIP, branch: disabled}
+      SP006: {status: PASS, branch: within_budget}
+
+  # The other side of that boundary, and the reason the boundary exists.
+  #
+  # Do not extend this pair by moving a fixture nearer the boundary. The
+  # specimen measured at +55ms past the window (close at 1250ms against a
+  # 1200ms window) was rejected for exactly that: over eight runs it produced
+  # accept_then_reset six times and in_app_listener_closed_early twice, because
+  # at that distance the reset and the listener's own close are the same event
+  # to a probe resolved to 50ms. Reclassifying it does not settle it — it is
+  # nondeterministic today and stays nondeterministic under the window rule, so
+  # a row for it would be a coin toss wearing an expectation. A fixture belongs
+  # here when its distance from the boundary exceeds the probe's resolution by
+  # an order of magnitude, not when it completes a picture.
+  - name: backlog-reset-after-window-in-app
+    image: pfk-backlog-reset
+    config: backlog-reset/after-window.yaml
+    description: >
+      An ordinary server that keeps its promise: it serves the whole declared
+      window, stops accepting while still listening, and then closes the
+      listening socket. The close resets the connection the kernel had already
+      handshaken into the backlog — but that connection was opened after the
+      window elapsed, so it is evidence and not a defect, and the run passes.
+      Eight runs on Darwin put the reset's start at +1844ms to +1878ms against a
+      1200ms window; the close lands about 230ms into the probe attempt and
+      about 260ms before that attempt's own timeout, so neither edge is close.
+    expect:
+      SP001: {status: PASS, branch: within_budget}
+      SP002: {status: PASS, branch: stable}
+      SP003: {status: PASS, branch: shutdown_observed}
+      SP004: {status: PASS, branch: in_app_covered}
       SP005: {status: SKIP, branch: disabled}
       SP006: {status: PASS, branch: within_budget}
 

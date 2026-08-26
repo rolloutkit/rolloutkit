@@ -15,7 +15,11 @@ from preflightkit.contracts.base import (
     Status,
 )
 from preflightkit.engine.context import RunReport
-from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS, AcceptOutcome
+from preflightkit.traffic.accept_probe import (
+    ACCEPT_PROBE_INTERVAL_MS,
+    AcceptAttempt,
+    AcceptOutcome,
+)
 
 _THIN_MARGIN_RATIO = 0.20
 
@@ -46,6 +50,13 @@ class DrainWindowContract:
     #: outrank the two advisories, which describe a drain that worked and could
     #: be observed or spared more room. Reporting an advisory over either
     #: failure would understate the run.
+    #:
+    #: The first branch only sees connections opened *inside* the declared
+    #: window (see `_reset_classes`), which is what makes this order safe to
+    #: keep. A reset that lands after the window is the kernel emptying an
+    #: accept queue on close, and it happens on well-behaved targets; letting it
+    #: outrank `in_app_covered` would have the strictest branch fire on the
+    #: healthiest run.
     IN_APP_PRECEDENCE = (
         "accept_then_reset",
         "in_app_listener_closed_early",
@@ -93,17 +104,39 @@ class DrainWindowContract:
 
     def evaluate(self, report: RunReport) -> ContractResult:
         strategy = report.config.deployment.drain.strategy
+        required = report.config.deployment.drain.in_app_window
         accept_window = report.accept_window_ms
         evidence = _evidence(report)
+        in_app = strategy is DrainStrategy.IN_APP
+        inside, after = _reset_classes(report, required) if in_app else ([], [])
         actual = {
             "strategy": str(strategy),
             "accept_window_ms": accept_window,
             "readiness_drop_delay_ms": report.readiness_drop_delay_ms,
             "readiness_drop_mode": report.readiness_drop_observation,
+            # The raw count stays what it always was: every post-T0 reset the
+            # probe saw. The two below are the split the verdict is taken on,
+            # and only in_app declares a window to split against.
             "accept_then_reset": len(report.accept_then_reset),
+            "accept_then_reset_in_window": len(inside) if in_app else None,
+            "accept_then_reset_after_window": len(after) if in_app else None,
         }
 
         def result(status: Status, summary: str, branch: str) -> ContractResult:
+            notes = [
+                f"accept_window is resolved to the {report.accept_probe_interval_ms}ms "
+                "probe interval; it is not a continuous timestamp."
+            ]
+            if after:
+                first = report.offset_ms(after[0].started_ns) or 0.0
+                notes.append(
+                    f"{len(after)} connection(s) were reset after the {required}ms "
+                    f"window had already closed (first started at +{first:.0f}ms). "
+                    "Closing a listening socket resets whatever the kernel has "
+                    "already handshaken into its accept queue; the window those "
+                    "connections were promised had elapsed, so they are evidence "
+                    "and do not decide the verdict."
+                )
             return ContractResult(
                 self.id,
                 self.name,
@@ -113,10 +146,7 @@ class DrainWindowContract:
                 expected=_expected(report),
                 actual=actual,
                 evidence=evidence,
-                notes=[
-                    f"accept_window is resolved to the {report.accept_probe_interval_ms}ms "
-                    "probe interval; it is not a continuous timestamp."
-                ],
+                notes=notes,
             )
 
         if strategy is DrainStrategy.PRESTOP:
@@ -137,17 +167,16 @@ class DrainWindowContract:
                 "none_uncovered",
             )
 
-        required = report.config.deployment.drain.in_app_window
         measured = accept_window if accept_window is not None else float("-inf")
 
         def accept_then_reset() -> tuple[Status, str] | None:
-            resets = report.accept_then_reset
-            if not resets:
+            if not inside:
                 return None
-            first = report.offset_ms(resets[0].connected_ns)
+            first = report.offset_ms(inside[0].started_ns)
             return Status.FAIL, (
-                f"{len(resets)} connection(s) started after SIGTERM were reset "
-                f"without a response (first connected at +{(first or 0):.0f}ms)"
+                f"{len(inside)} connection(s) opened inside the {required}ms "
+                f"window were reset without a response (first started at "
+                f"+{(first or 0):.0f}ms)"
             )
 
         def in_app_listener_closed_early() -> tuple[Status, str] | None:
@@ -380,8 +409,23 @@ def _evidence(report: RunReport) -> dict[str, Any]:
         "terminal_refused_streak": report.accept_refused_streak_target,
         "attempts_after_t0": dict(outcomes),
         "rejections_after_t2": dict(after_t2),
+        # The window the events below are classified against, as a number. It
+        # was previously recoverable only from the `expected` sentence, which
+        # made the verdict unauditable from the report: a reader could see the
+        # resets and not the boundary that decided which of them counted.
+        "in_app_window_ms": (
+            report.config.deployment.drain.in_app_window
+            if report.config.deployment.drain.strategy is DrainStrategy.IN_APP
+            else None
+        ),
         "accept_then_reset": [
             {
+                # The branch keys on when the connection was *requested*, so
+                # that is the offset published. `connected_offset_ms` is when
+                # the handshake finished, which on a loaded target trails the
+                # request by as much as the accept lag and is the wrong side of
+                # the boundary to judge by.
+                "started_offset_ms": report.offset_ms(attempt.started_ns),
                 "connected_offset_ms": report.offset_ms(attempt.connected_ns),
                 "finished_offset_ms": report.offset_ms(attempt.finished_ns),
                 "error": attempt.error,
@@ -389,3 +433,35 @@ def _evidence(report: RunReport) -> dict[str, Any]:
             for attempt in report.accept_then_reset
         ],
     }
+
+
+def _reset_classes(
+    report: RunReport, window_ms: float
+) -> tuple[list[AcceptAttempt], list[AcceptAttempt]]:
+    """Split post-T0 resets by whether the request began inside the window.
+
+    A connection requested while the declared window was still open was
+    promised an answer, and a reset instead of one is a defect. A connection
+    requested after the window closed was promised nothing: the application has
+    already served the interval it declared, and a rollout has removed the
+    endpoint by then, so the only reason our probe is still knocking is that we
+    keep the stream running to measure when the listener actually closed.
+    Resetting that connection is what closing a listening socket does to
+    whatever the kernel has already handshaken into its accept queue — a
+    property of TCP, not of the application.
+
+    The boundary is closed at the top: a window of 1200ms includes a request
+    made at exactly +1200ms, because that is the last instant the declaration
+    covers. An offset that cannot be computed at all is counted as inside —
+    unreachable here, since a reset only qualifies once T0 exists, but the
+    unclassifiable event belongs on the side that reports rather than the side
+    that stays quiet.
+    """
+    inside: list[AcceptAttempt] = []
+    after: list[AcceptAttempt] = []
+    for attempt in report.accept_then_reset:
+        started = report.offset_ms(attempt.started_ns)
+        (after if started is not None and started > window_ms else inside).append(
+            attempt
+        )
+    return inside, after

@@ -1,0 +1,16 @@
+version: 1
+target:
+  image: pfk-backlog-reset
+  port: 8000
+  env:
+    STOP_ACCEPT_AFTER_MS: "1800"
+    CLOSE_AFTER_MS: "2075"
+    EXIT_AFTER_MS: "2400"
+deployment:
+  termination_grace_period: 30s
+  drain: {strategy: in_app, in_app_window: 1200ms}
+probes:
+  readiness: {path: /ready, expected_status: 200}
+contracts:
+  inflight: null
+  startup: {budget: 15s}

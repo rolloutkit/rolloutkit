@@ -321,9 +321,20 @@ CATALOG: dict[str, ContractDoc] = {
             Verdict(
                 "accept_then_reset",
                 "FAIL",
-                "A connection opened after T0 completed its handshake and was then "
-                "reset with no response at all. Worse than a refusal: the caller "
-                "already believed it was connected. Overrides the window verdict.",
+                "A connection opened while the declared window was still open "
+                "completed its handshake and was then reset with no response at "
+                "all. Worse than a refusal: the caller already believed it was "
+                "connected. Overrides the window verdict. Only connections opened "
+                "inside the window count — the branch is decided by "
+                "started_offset_ms, published for every reset in evidence, not by "
+                "when the handshake finished. A reset whose connection was opened "
+                "after the window is reported as evidence and changes no verdict: "
+                "closing a listening socket resets whatever the kernel has already "
+                "handshaken into its accept queue, and by then the application has "
+                "served the interval it promised and routing has withdrawn the "
+                "endpoint. Judging by the handshake instead would fail a target "
+                "for its accept latency, since a busy worker finishes a handshake "
+                "the kernel completed some milliseconds earlier.",
                 ("in_app",),
             ),
             Verdict(
@@ -399,7 +410,13 @@ CATALOG: dict[str, ContractDoc] = {
             "the listener and readiness open for the declared window. "
             "accept_then_reset is different: the socket is being accepted and "
             "dropped, which is usually a worker pool closing its listener while "
-            "connections sit in the backlog."
+            "connections sit in the backlog. Read started_offset_ms against "
+            "in_app_window_ms before treating it as one — both are in evidence. "
+            "Inside the window the caller was promised an answer and got a reset "
+            "instead, and that is the defect. After the window the same reset is "
+            "the ordinary cost of closing a listening socket, and every "
+            "well-behaved server pays it; the fix there, if you want one, is not "
+            "in the application but in the window you declared."
         ),
         precedence=(
             "accept_then_reset",

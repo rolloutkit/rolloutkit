@@ -1605,6 +1605,12 @@ is therefore too strong; what remains open is whether the jitter *floor* differs
 enough between Linux, macOS and CI to move the threshold. See "What the fallback
 ratio tracks, measured four ways" at the end of this file.
 
+Now closed. The floor differs by 3.4x — 0.154ms on macOS against 0.516ms on a
+native Linux CI daemon — and it moves the verdict on three of ten
+configurations. "Host identity is the deciding input" was not too strong after
+all; it was measured on the wrong axis. See "Three hosts, pipeline cost, and the
+fallback decision" at the end of this file.
+
 ## Watch list and measurement record (2026-08-26; preflightkit commit: 394996b0bd0afb74d7021b3d51db92a3302293ff)
 
 ### Watch item: SP001 `within_resolution` is the same one-way knob
@@ -1902,3 +1908,306 @@ Teardown was `not_calibrated` in all thirty-two runs: the profile's budget is fa
 from the floor, so nothing needed measuring. The cross-host teardown figure this
 file already carries (237-250ms on Linux, 50.73ms here) still comes from the
 runs that did calibrate.
+
+## Three hosts, pipeline cost, and the fallback decision (2026-08-26; preflightkit commit: 74982e8ca26689947f3142a8bafa53fc91d1c842)
+
+Ten batches of eight runs on each of three conditions, plus a sixteen-batch
+loaded state, taken with `scripts/measure-set.sh` so that every condition ran
+the same set in the same order. 448 documents. The question the previous note
+left open was whether the jitter floor differs enough between Linux, macOS and
+CI to move the fallback threshold. It does: by 3.4x, and it moves the verdict on
+three of ten configurations.
+
+### What these three are, and what is still missing
+
+| condition | host_id | daemon | what it is |
+|---|---|---|---|
+| macOS warm | `Darwin 25.5.0 / docker 29.7.2 / 11cpu` | Docker Desktop, aarch64, in a VM | the laptop the constants were chosen on, idle |
+| macOS loaded | same | same | the same laptop with `hw.ncpu` spinners pinning every core |
+| Linux CI | `Linux 6.17.0-1022-azure / docker 28.0.4 / 2cpu` | native daemon, amd64, 7938 MB | GitHub `ubuntu-latest`, workflow run 32949002801 |
+
+The third row is the control this file has wanted since the sidecar spike: a
+native Linux daemon with no VM between the measurement and the kernel. It is not
+the native Linux *server* the brief asked for, and the difference matters — two
+cores and a shared cloud host is a weaker machine than a real server, so it
+bounds the jitter floor from the pessimistic side rather than the realistic one.
+The server leg and the two real service configurations were not run; see "What
+this could not cover".
+
+The second row is a machine *state*, not a fourth machine. It is here because
+the instability that prompted this whole question turned out to live between
+states rather than within a batch, and without it every disagreement figure in
+this note would have read 0.00 and said nothing.
+
+### The three-host table
+
+Median of eight runs per cell. Jitter and p50 in ms.
+
+| batch | readiness delay | macOS warm jitter / p50 / ratio | macOS loaded jitter / p50 / ratio | Linux CI jitter / p50 / ratio |
+|---|---|---|---|---|
+| `fallback` | none | 0.150 / 0.39 / 2.62 | 0.406 / 3.71 / 9.74 | 0.513 / 1.12 / 2.18 |
+| `sweep-1ms` | 1ms | 0.146 / 1.68 / 11.64 | 0.749 / 5.77 / 11.59 | 0.502 / 2.15 / 4.32 |
+| `sweep-2ms` | 2ms | 0.144 / 2.89 / 19.58 | 1.105 / 7.53 / 6.85 | 0.457 / 3.17 / 6.92 |
+| `sweep-3ms` | 3ms | 0.137 / 4.06 / 28.81 | 0.417 / 7.72 / 25.52 | 0.503 / 4.15 / 8.29 |
+| `sweep-5ms` | 5ms | 0.157 / 6.55 / 41.96 | 0.266 / 10.15 / 36.05 | 0.516 / 6.18 / 12.37 |
+| `sweep-10ms` | 10ms | 0.142 / 11.58 / 81.59 | 0.264 / 16.01 / 60.70 | 0.508 / 11.30 / 22.32 |
+| `slow` | 200ms | 0.560 / 205.02 / 366.86 | — | 0.518 / 201.16 / 388.20 |
+| `fast` | none, SP005 disabled | 0.166 / 0.43 / 2.58 | — | 0.556 / 1.10 / 2.01 |
+| `full` | none, in-flight configured | 0.147 / 0.36 / 2.45 | — | 0.508 / 1.09 / 2.20 |
+
+The jitter floors, over every run of every batch:
+
+| condition | n | min | median | max |
+|---|---|---|---|---|
+| macOS warm | 96 | 0.124 | 0.154 | 0.718 |
+| macOS loaded | 48 | 0.223 | 0.370 | 2.798 |
+| Linux CI | 96 | 0.378 | 0.516 | 0.635 |
+
+Two things in that table were not expected. The native Linux daemon has a
+*higher* jitter floor than the Docker VM — 0.516 against 0.154, a factor of 3.4
+— so the VM is not the source of the noise the ratio divides by; core count is
+the better explanation, two against eleven. And the Linux floor is the tightest
+of the three: 0.378 to 0.635 across 96 runs, a range narrower than macOS
+manages while idle. A weaker machine, measured more repeatably.
+
+The consequence is the finding. `sweep-1ms`, `sweep-2ms` and `sweep-3ms` are the
+same image with the same readiness delay, and the ratio rule resolves all three
+on macOS and refuses all three on Linux. The resolution floor is below 1ms on the
+laptop and between 3ms and 5ms on the runner.
+
+### Pipeline cost
+
+Total of `phase_durations_ms`, median of eight runs.
+
+| batch | macOS warm | Linux CI | what dominates |
+|---|---|---|---|
+| `fast` | 1.88s | 2.91s | nothing; this is the floor |
+| `fallback` | 2.17s | 3.48s | sidecar start |
+| `slow` | 5.29s | 6.43s | baseline, 200ms readiness x 10 samples |
+| `full` | 22.08s | 23.37s | baseline 15.1s, experiment 5.5s |
+| `repeat3` (one document, 3 runs) | 5.47s | 8.73s | three sidecar starts |
+
+`full` is the realistic Kubernetes profile: a 5s in-flight endpoint, a 5s preStop
+and a 30s grace period. It is the worst case in the set and it costs 23.37s on
+the slowest host measured. The spec allows +40s. There is nothing to cut.
+
+The tool's own fixed cost — everything that is not waiting on a duration the
+user configured — is 1.46s on macOS and 2.68s on CI:
+
+| phase | macOS warm | Linux CI |
+|---|---|---|
+| `probe_image_preparation` (network + traffic sidecar) | 864ms | 1636ms |
+| `calibration` | 86ms | 153ms |
+| `target_start` | 293ms | 705ms |
+| `teardown` | 215ms | 188ms |
+
+`probe_image_preparation` is the single largest fixed item on both hosts and
+doubles on the two-core runner. `teardown` is the one phase that is *faster* on
+Linux, 183-192ms against 199-215ms, which is the native daemon showing.
+
+The +40s limit is reached only when the configured in-flight endpoint runs longer
+than about 11s: `total ~ F + 10R + 3D + P + S`, and with F = 2.7s and a 5s preStop
+that puts D at 10.8s. +5 minutes is not reachable by any configuration a person
+would write. The model was checked against the runs rather than assumed —
+predicted baseline against measured, macOS: `full` 15004/15107, `slow` 2665/2800,
+`sweep-3ms` 139/147, `fallback` 105/96.
+
+Since the budget is not exceeded, the shortening options stay priced and
+unimplemented. Recorded so the price is known if the profile ever grows:
+
+1. Run the keep-alive proof concurrently with the 25 baseline samples. The proof
+   is itself two sequential requests, so this takes the in-flight cost from 3D to
+   2D, not to 1D: 22.08s to 17.1s on macOS, 23.37s to 18.3s on CI. Semantically
+   free — nothing about the proof depends on running it alone.
+2. Move the keep-alive proof to the readiness path: 3D becomes D + 2R, 22.08s to
+   12.1s, 23.37s to 13.3s. Not free — a route that answers `Connection: close`
+   on the in-flight path but not on `/ready` would stop being caught.
+3. Reuse the network and sidecar across `--repeat`. Saves one
+   `probe_image_preparation` per extra run: on macOS 5.47s to about 3.9s, on CI
+   8.73s to about 5.5s, and the saving grows with N. Confirmed to be real —
+   inside one `repeat3` document the three per-run figures were 776.6, 793.3 and
+   790.9ms, so nothing is amortised today.
+4. Not a candidate: SP002's ten sequential readiness probes. Sequential agreement
+   is what SP002 measures; running them concurrently would delete the contract.
+
+### The fallback decision, as a stability question
+
+The question was moved from "what should the coefficient be" to "after how many
+samples is the decision stable", which is the right move: the 1.22-16.08 spread
+that prompted it is a spread of *single* readings, and no coefficient repairs a
+reading that cannot be repeated.
+
+Stability is measured as disagreement — the chance that two independent
+applications of a rule to the same configuration on the same host reach opposite
+answers, bootstrapped over 20,000 resamples with a fixed seed. There is no
+ground truth here and inventing one would mean assuming the answer, so the
+metric asks only whether the rule repeats itself. `scripts/analyse_resolution.py`
+prints it; `ratio-1` reproduces the shipped rule exactly and is checked against
+it as a consistency test.
+
+**The instability is not where it looked.** Within a single machine state the
+current rule is already settled: disagreement 0.00 on all ten macOS-warm batches
+and all ten Linux CI batches. Every non-zero figure in the whole dataset comes
+from the loaded state:
+
+| batch (loaded) | current (= ratio-1) | ratio-3 | ratio-5 | ratio-9 | p50>=5ms | p50>=10ms |
+|---|---|---|---|---|---|---|
+| `fallback` | 0.50 | 0.22 | 0.06 | 0.00 | 0.22 | 0.00 |
+| `sweep-1ms` | 0.50 | 0.22 | 0.06 | 0.00 | 0.00 | 0.00 |
+| `sweep-2ms` | 0.38 | 0.03 | 0.00 | 0.00 | 0.00 | 0.22 |
+| `sweep-3ms` | 0.47 | 0.37 | 0.17 | 0.03 | 0.00 | 0.38 |
+| `sweep-5ms` | 0.22 | 0.44 | 0.50 | 0.42 | 0.00 | 0.50 |
+| `sweep-10ms` | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+0.50 is a coin toss, and the current rule reaches it twice.
+
+### Variant A: more samples, and the lower edge must clear the threshold
+
+Resolve only if the *minimum* of k readings clears the ratio; if the readings
+straddle it, INCONCLUSIVE.
+
+It works where it was asked to. `fallback` and `sweep-1ms` go from a coin toss
+to settled by k=9. But three things came out of the numbers that the design did
+not anticipate:
+
+**It buys stability by declining to answer.** Resolve rate on `sweep-5ms-loaded`
+falls 0.88 → 0.67 → 0.51 → 0.30 as k goes 1 → 3 → 5 → 9. The disagreement that
+disappears is not converted into a decision, it is converted into INCONCLUSIVE.
+For the fallback path specifically, INCONCLUSIVE and "below" produce the same
+user experience — SP005 does not run — so on the branch that matters this is a
+strictly worse answer delivered more confidently.
+
+**At the boundary it gets less stable before it gets more stable.** `sweep-5ms`
+loaded goes 0.22 → 0.44 → 0.50 → 0.42. A minimum over k draws down as k grows,
+so a configuration sitting just above the threshold is dragged across it by the
+very samples meant to settle it. This is exactly the near-threshold case the
+brief asked about, and it is the one case where more evidence makes the rule
+worse.
+
+**Priced as written, it is unaffordable.** k in the table means k *runs*, because
+the ratio is a per-run figure. k=9 on the realistic profile is 9 x 23.37s = 3.5
+minutes, against a +40s budget. That kills the variant in the form stated — but
+not the idea, because the run already takes ten readiness samples
+(`readiness_samples: 10`) and five jitter samples, and throws away everything but
+p50 and max. A lower bound computed from the samples a single run already has
+costs nothing in wall-clock and needs one field added to the report. That is a
+different change from the one proposed, and it is the affordable shape of it.
+
+### Variant B: an absolute ms floor on readiness p50
+
+Drop the ratio, resolve if `readiness_p50 >= T`.
+
+Its case is one number. Across the ten configurations run on both idle hosts,
+the two hosts agree on **10 of 10** under `p50 >= 5ms` and on **7 of 10** under
+the ratio. The three it fixes are `sweep-1ms`, `sweep-2ms` and `sweep-3ms` — the
+same image getting opposite verdicts on two machines.
+
+Calibration is not free-handed. On Linux CI the ratio resolves at p50 6.18ms and
+refuses at 4.15ms, so any T in (4.15, 6.18] reproduces the most conservative
+host's verdicts exactly on all ten configurations; 5ms is the middle of that
+band. Against the transport floors it is 4.5x the worst *median* jitter observed
+anywhere (1.105ms, loaded) and 1.8x the worst single jitter reading (2.798ms,
+also loaded). Disagreement is 0.00 on 15 of the 16 batches; the exception is
+`fallback-loaded` at 0.22.
+
+Its case against is the other half of the same table. Across machine states on
+one host, the ratio agrees 5/6 and the absolute threshold agrees **3/6**:
+
+| batch | jitter warm → loaded | p50 warm → loaded | ratio rule | p50>=5ms rule |
+|---|---|---|---|---|
+| `fallback` | 0.150 → 0.406 | 0.39 → 3.71 | below/below | below/below |
+| `sweep-1ms` | 0.146 → 0.749 | 1.68 → 5.77 | resolve/resolve | **below/resolve** |
+| `sweep-2ms` | 0.144 → 1.105 | 2.89 → 7.53 | **resolve/below** | **below/resolve** |
+| `sweep-3ms` | 0.137 → 0.417 | 4.06 → 7.72 | resolve/resolve | **below/resolve** |
+| `sweep-5ms` | 0.157 → 0.266 | 6.55 → 10.15 | resolve/resolve | resolve/resolve |
+| `sweep-10ms` | 0.142 → 0.264 | 11.58 → 16.01 | resolve/resolve | resolve/resolve |
+
+Under load a 1ms readiness window measures 5.77ms, and the absolute rule reports
+a resolvable window for a service whose behaviour did not change. The ratio does
+not make that mistake, because load inflates the jitter probe and the readiness
+probe together and the division cancels it — which is what the four-condition
+note found and what the loaded column confirms on a third axis.
+
+So the two rules do not fail in the same direction. The ratio's failure is that
+its floor is a property of the machine, so the same service answers differently
+on two machines. The absolute threshold's failure is that it reads the measuring
+machine's load as the service's behaviour. Neither is a bug in the sense of
+being wrong about what it measures; they measure different questions, and the
+tool has been treating one as if it answered the other.
+
+### Recommendation
+
+Not implemented, and `MIN_JITTER_RATIO` is untouched at 10.
+
+**Keep the ratio as the decision.** It is the only one of the two that is stable
+under load, and load is the condition a CI runner is actually in. Every
+disagreement figure above comes from the loaded state, so a rule that is fooled
+by load is disqualified for the environment this tool runs in.
+
+**Do not raise the coefficient.** The evidence against is direct rather than
+argued: making the rule stricter made the near-threshold case *less* repeatable,
+0.22 to 0.50 on `sweep-5ms-loaded`. Raising 10 to 20 moves the boundary, it does
+not remove one, and the configurations that then sit on the new boundary will be
+exactly as unstable as the ones on the old one.
+
+**Add an absolute floor as a guard, not as the decision.** Refuse to resolve when
+`readiness_p50` is below the floor regardless of ratio. That closes the one class
+of error the ratio cannot see — the laptop resolving a 1.68ms window at ratio
+11.64 while the runner calls the same configuration unresolvable — without
+importing the absolute rule's load sensitivity, because a guard can only ever
+turn a "yes" into a "no", and the load failure mode is a false yes. From the
+band above, 5ms is the calibrated value; it changes no verdict on Linux CI and
+removes three on macOS, all three of which Linux already refused.
+
+**Take the cheap half of variant A, not the stated one.** Record the readiness
+samples the run already collects, or a lower quantile of them, in
+`resolution_calibration`. Then a lower bound is available for free and the
+INCONCLUSIVE branch can be defended from within a single run. Nine runs cannot.
+
+**Report the floor, whatever is decided.** The most useful output of this whole
+exercise for a user is not a verdict but the sentence "this host cannot resolve
+windows below about 4ms" — which macOS and Linux CI answer differently by a
+factor of four, and which the run already has every number it needs to say.
+
+### What this could not cover
+
+The native Linux *server* leg was not run. The brief named no host and the SSH
+configuration on this machine lists nine, several of them production. Starting
+container workloads on an unnamed production server is not a call to make by
+inference, so the CI runner stands in as the native-Linux control and the server
+leg is still open. The `service-a` and `service-b` configurations were to be
+supplied separately and did not arrive, so both real-service legs are also open
+— which matters, because every configuration in this note is a fixture whose
+readiness delay was chosen to bracket the threshold, and a real service lands
+where it lands.
+
+Teardown floor: `teardown_calibration` was null in all 448 runs on all three
+conditions. No fixture in the set has a shutdown budget close enough to the
+daemon floor to trigger calibration, so this leg produced nothing. The `teardown`
+*phase* durations in the cost table are the phase's wall-clock, which is a
+different quantity and is not a floor. The cross-host floor figures this file
+carries elsewhere still come from the runs that did calibrate.
+
+### How these were taken
+
+`scripts/measure-set.sh -n 8`, which runs the same ten batches in the same order
+on any host: `fast`, `full`, `fallback`, `slow`, `repeat3`, and a five-point
+sweep at 1, 2, 3, 5 and 10ms of readiness delay. The sweep range was chosen after
+a smoke probe at 10ms returned a ratio of 72.6 on macOS, which showed the upper
+half of the range only ever gives one answer.
+
+The `fallback` batch runs from an empty directory. This is not tidiness: an
+earlier ad-hoc batch labelled "fallback" was found to have
+`inflight_target: configured` in its documents, because the repository root holds
+a sample configuration with a configured in-flight path and
+`DEFAULT_CONFIG_NAMES` discovers it from the working directory. The batch had
+measured the wrong branch.
+
+`scripts/build_fixture_images.py` reads the image list out of
+`fixtures/matrix.yaml` rather than a hand-written copy, so a host can reach the
+starting line without the five-minute Docker matrix.
+`.github/workflows/measure.yml` is `workflow_dispatch` only and uploads
+`measurements/` as an artifact. `scripts/analyse_resolution.py` is standard
+library only and repeats `CURRENT_RATIO = 10.0` deliberately rather than
+importing it, so that re-running the analysis after a threshold change does not
+silently re-score old batches under the new one.

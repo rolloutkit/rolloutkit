@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teardown floor as a table with a median row. The host names itself out of the
   report, so batches from a Linux server, a macOS laptop and a CI runner are
   comparable without transcription. Configuration files are passed with `-c`.
+- `scripts/measure-set.sh`, which runs the same batches in the same order on
+  every host, `scripts/build_fixture_images.py`, which builds the fixture images
+  from `fixtures/matrix.yaml` so a measurement host does not need the Docker
+  matrix, and `scripts/analyse_resolution.py`, which reports how often two runs
+  of one configuration reach opposite resolution verdicts. A
+  `workflow_dispatch` workflow runs the set on a CI runner and uploads the
+  documents.
 
 ### Changed
 

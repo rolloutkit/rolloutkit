@@ -52,7 +52,9 @@ MATRIX = ROOT / "fixtures" / "matrix.yaml"
 #: fails the moment the two disagree, so moving a branch off live-image proof is
 #: a change someone has to make here, on purpose, and defend in review.
 REVIEWED_DECISION_UNIT = {
+    ("SP004", "budget_below_teardown_floor"),
     ("SP005", "readiness_fallback_below_resolution"),
+    ("SP006", "budget_below_teardown_floor"),
 }
 
 

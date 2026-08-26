@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,7 +17,14 @@ from preflightkit.engine.context import RunReport
 from preflightkit.engine.lifecycle import _calibrate
 from preflightkit.runtime.base import Container, ContainerSpec
 from preflightkit.runtime.base import TeardownCalibration
-from preflightkit.runtime.docker import DockerError, DockerRuntime, _traffic_probe_body
+from preflightkit.runtime.docker import (
+    PROBE_IMAGE,
+    DockerError,
+    DockerRuntime,
+    _TEARDOWN_CALIBRATION_SAMPLES,
+    _TEARDOWN_STDDEV_K,
+    _traffic_probe_body,
+)
 
 
 def _response(status: int, body: dict[str, Any] | None = None) -> httpx.Response:
@@ -326,5 +334,73 @@ def test_dependency_alias_resolves_on_the_runtime_created_bridge() -> None:
                 for container in reversed(containers):
                     await runtime.remove(container)
                 await runtime.remove_network(network)
+
+    anyio.run(scenario)
+
+
+@pytest.mark.docker
+def test_teardown_calibration_measures_a_real_daemon_and_agrees_with_itself() -> None:
+    """The one mechanism no fabricated value can stand in for.
+
+    Both branches that consume this calibration — SP004 and SP006's
+    `budget_below_teardown_floor` — are proved by handing the decision function
+    known numbers, because their decision is arithmetic. That leaves the source
+    of the numbers unproved, and a wrong floor is the failure that arithmetic
+    cannot catch: the comparison still works, the verdict still renders, and the
+    answer is confidently false. So this test does not check the decision. It
+    checks that a real daemon produces samples at all, that they are in
+    milliseconds rather than some other unit, and that the statistics published
+    from them describe the samples they came from.
+
+    What it deliberately does not assert is any magnitude. The floor is host
+    plumbing — 12ms with no network, 83-94ms behind a published port on one
+    Docker Desktop — and pinning a number measured here would make this a test
+    of the machine it last ran on.
+    """
+
+    async def scenario() -> None:
+        async with DockerRuntime() as runtime:
+            if not await runtime.image_exists(PROBE_IMAGE):
+                pytest.skip(f"{PROBE_IMAGE} is not present locally")
+            network = await runtime.create_network("pfk-test-teardown-floor")
+            try:
+                calibration = await runtime.measure_teardown_floor(
+                    port=8000, network_name=network.name, publish_port=False
+                )
+            finally:
+                await runtime.remove_network(network)
+
+        assert calibration is not None, (
+            "the daemon was reachable but no teardown sample survived; the "
+            "kill/die frames are what SP004 and SP006 resolve their budgets "
+            "against, and without them both silently fall back to INCONCLUSIVE"
+        )
+        samples = calibration.samples_ms
+        assert len(samples) == _TEARDOWN_CALIBRATION_SAMPLES
+
+        for sample in samples:
+            assert sample > 0, f"a teardown interval of {sample} is not a duration"
+            # SIGKILL is delivered by the kernel and cannot be delayed, so this
+            # interval is the daemon noticing and reporting. Anything near the
+            # 15s timeout means the frames were not read; anything in the
+            # millions means nanoseconds were published as milliseconds.
+            assert sample < 15_000, f"{sample}ms is the timeout, not a measurement"
+
+        assert calibration.floor_ms == statistics.median(samples)
+        assert calibration.stddev_ms == statistics.stdev(samples)
+        assert calibration.stddev_k == _TEARDOWN_STDDEV_K
+        assert calibration.resolution_threshold_ms == (
+            calibration.floor_ms + _TEARDOWN_STDDEV_K * calibration.stddev_ms
+        )
+        assert calibration.resolution_threshold_ms >= calibration.floor_ms
+
+        published = calibration.as_dict()
+        assert published["sample_count"] == _TEARDOWN_CALIBRATION_SAMPLES
+        assert published["floor_statistic"] == "median"
+        assert published["stddev_statistic"] == "sample"
+        assert published["floor_ms"] == round(calibration.floor_ms, 3)
+        assert published["resolution_threshold_ms"] == round(
+            calibration.resolution_threshold_ms, 3
+        )
 
     anyio.run(scenario)

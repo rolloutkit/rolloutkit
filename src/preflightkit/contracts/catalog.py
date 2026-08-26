@@ -328,12 +328,27 @@ CATALOG: dict[str, ContractDoc] = {
                 "unresolved candidate verdict is kept in evidence.",
                 ("in_app",),
             ),
+            # Classified decision_unit: the branch compares a declared
+            # shutdown_budget against a teardown envelope measured with a
+            # throwaway container of our own. Neither term reads the image under
+            # test, so a live row lands on whichever side the host's teardown
+            # cost puts it — the row that used to cover this already had to stop
+            # asserting SP003 for exactly that reason. The measurement behind
+            # the envelope is not covered here: it has its own live test,
+            # tests/test_networking.py::
+            # test_teardown_calibration_measures_a_real_daemon_and_agrees_with_itself,
+            # because a wrong floor is the one failure the arithmetic cannot see.
             Verdict(
                 "budget_below_teardown_floor",
                 "INCONCLUSIVE",
                 "The shutdown budget is inside the measured teardown envelope, so "
                 "no timing claim about this run can be separated from Docker's own "
                 "teardown cost.",
+                evidence=Evidence.DECISION_UNIT,
+                proof=(
+                    "tests/test_drain.py::"
+                    "test_sp004_budget_precondition_is_inconclusive"
+                ),
             ),
         ),
         "Endpoints removal is asynchronous: after SIGTERM the load balancer keeps "
@@ -503,11 +518,26 @@ CATALOG: dict[str, ContractDoc] = {
                 "FAIL",
                 "It overran the budget, never exited, or was ended by SIGKILL.",
             ),
+            # Classified decision_unit: the branch compares a declared
+            # shutdown_budget against a teardown envelope measured with a
+            # throwaway container of our own. Neither term reads the image under
+            # test, so a live row lands on whichever side the host's teardown
+            # cost puts it — the row that used to cover this already had to stop
+            # asserting SP003 for exactly that reason. The measurement behind
+            # the envelope is not covered here: it has its own live test,
+            # tests/test_networking.py::
+            # test_teardown_calibration_measures_a_real_daemon_and_agrees_with_itself,
+            # because a wrong floor is the one failure the arithmetic cannot see.
             Verdict(
                 "budget_below_teardown_floor",
                 "INCONCLUSIVE",
                 "The configured budget is inside the measured teardown envelope, so "
                 "the deadline cannot be distinguished from Docker's own overhead.",
+                evidence=Evidence.DECISION_UNIT,
+                proof=(
+                    "tests/test_preconditions.py::"
+                    "test_budget_inside_measured_teardown_spread_blocks_sp006"
+                ),
             ),
         ),
         "When the grace period expires the platform sends SIGKILL and stops "

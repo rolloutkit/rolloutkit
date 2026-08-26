@@ -2585,3 +2585,100 @@ from a run, and this one cost a five-minute matrix to find. It is narrow — one
 helper, now gone — but the general shape is that the catalog is data other code
 queries, and a query that returns nothing is not a coverage failure, so nothing
 in the coverage file is looking for it.
+
+## A flaky matrix row, and the accept queue it was racing (2026-08-26; preflightkit commit: e9ddd2b7dfb1046edd48548a217120c414dbf14c)
+
+`in-app-readiness-never-changes` expects `SP004 WARN /
+in_app_readiness_not_signaled`. On 2026-08-26 the Docker matrix reported `FAIL /
+accept_then_reset — 1 connection(s) started after SIGTERM were reset without a
+response (first connected at +2009ms)`. A rerun of the same commit was green,
+which is the shape of a flake and says nothing about which side is wrong.
+
+### The obvious hypothesis, and the number that killed it
+
+The suspicion was that the fixture closed its window early: if the app stopped
+holding the listener before the declared `in_app_window`, the reset would be a
+real defect and SP004 should have failed on the window clause too, which would
+make the matrix expectation wrong rather than the fixture.
+
+It did not. The declared window is 1200ms. The listener is held for about 2000ms
+on every run of both hosts, and the reset landed at +2015ms — 815ms *after* the
+window closed. The window clause was right not to fire, and the app was never
+early. Whatever produced the reset happened at the end of a window it had
+already covered.
+
+### n=8 on both hosts, before and after
+
+H1 is a Darwin 25.5.0 laptop, 11 cpu, docker 29.7.2. H2 is a GitHub
+`ubuntu-latest` runner, 2 cpu, docker 28.0.4.
+
+| batch | n | WARN | FAIL | accept_window_ms min / median / max |
+| --- | --- | --- | --- | --- |
+| H1, before | 8 | 7 | 1 | 1968 / 2008 / 2034 |
+| H2 alone, before | 8 | 8 | 0 | 1965 / 2019 / 2029 |
+| H1, after | 8 | 8 | 0 | 2015 / 2029 / 2060 |
+| H2 alone, after | 8 | 8 | 0 | 2010 / 2040 / 2171 |
+
+The window itself does not move: eight numbers on each host, all within about
+10% of 2000ms, on a machine with 11 cores and on one with 2. What moved was
+whether a connection got caught, and the fourth reading is the one that names
+the variable. H2 *alone* was 8/8 green before the fix, while H2 *inside the
+Docker matrix* flipped one run in two on the same commit. It is load-dependent,
+not host-dependent — which is why one host's clean batch was never evidence.
+
+### The mechanism
+
+Closing a listening socket resets every connection already handshook into its
+accept queue. The fixture closed its listener from inside the reply it was
+writing, so between the close and the probe's next `accept()` there was a window
+the width of a scheduler slice — invisible on an idle machine, wide enough to
+catch a connection on a loaded two-core runner.
+
+SP004 is right to call that `accept_then_reset`: a connection the client already
+believed it had, destroyed after T0, is exactly what the branch is for. What was
+wrong is that this row is not the specimen for it. `accept-then-reset-in-app`
+is, and it keeps the racing close on purpose.
+
+### What the fix changes, and what it does not
+
+The close is now ordered rather than raced. The listening socket is shut down
+*before* the reply is written, while the accept probe is blocked waiting for
+that very reply — and the probe is serial, so at that instant its accept queue
+is provably empty. The connection being answered was accepted long before, so it
+is unaffected.
+
+Ordering it that way needs the probe told apart from the readiness watcher, and
+after T0 both send `Connection: close` to the same readiness path. The
+discriminator is that the watcher goes through `http.client`, which always adds
+`Accept-Encoding: identity`, while the probe writes its request by hand and
+sends only `Host` and `Connection`. Keying the close on `Connection: close`
+alone is what let a *readiness sample* close the listener while an accept-probe
+handshake sat in the queue.
+
+The matrix expectation is unchanged, and deliberately so. Each SP004 in_app
+branch has exactly one live row. Flipping this one to FAIL would have duplicated
+`accept-then-reset-in-app` while leaving `in_app_readiness_not_signaled` with no
+live coverage at all — and it would have made a row assert a verdict it produced
+one time in eight.
+
+### Two things this cost that were worth paying
+
+The first is that `docs/ci-runs.md` could not answer "was this row green
+before". It records one conclusion per job, and 34 rows share it. Per-row
+records are now written by `tests/conftest.py` and uploaded as a CI artifact;
+the reasoning is in that file and in `docs/ci-runs.md`.
+
+The second is that SP004's in_app clauses were being asked in source order.
+Under this fixture both `accept_then_reset` and `in_app_readiness_not_signaled`
+held on the same run — a FAIL and a WARN disagreeing about the same shutdown —
+and which one came out was decided by which `if` was written first. That order
+is now declared as `IN_APP_PRECEDENCE`, printed by `explain SP004`, and pinned
+by tests that fail if any neighbouring pair is swapped.
+
+### How these were taken
+
+`scripts/measure-runs.sh -c fixtures/drain-window/readiness-never.yaml -n 8` on
+H1; the same batch on H2 through `.github/workflows/measure.yml` with
+`standard_set=false`, which is what `-x` was added for. Before-readings on
+`32b3936` and `840f3fa`, after-readings on `e9ddd2b` (H1) and `99ed5e5` (H2).
+The H2 batches are Actions runs `32996171026` and `32998568732`.

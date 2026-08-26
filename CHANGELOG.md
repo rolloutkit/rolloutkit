@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the host, so choosing a threshold takes readings from several.
 - `--version` output containing both package version and source commit.
 - Phase-by-phase progress on stderr, numbered per run under `--repeat`.
+- `scripts/measure-runs.sh`, which runs one prediction N times, keeps every
+  JSON document and prints the phase durations, resolution calibration and
+  teardown floor as a table with a median row. The host names itself out of the
+  report, so batches from a Linux server, a macOS laptop and a CI runner are
+  comparable without transcription. Configuration files are passed with `-c`.
 
 ### Changed
 

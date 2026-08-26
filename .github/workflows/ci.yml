@@ -30,7 +30,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Ruff
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
 
       - name: Run the suite that needs no daemon
         run: uv run pytest -q -m "not docker"

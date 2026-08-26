@@ -23,6 +23,10 @@ The checkout path is stripped from the recorded command line on the way out,
 because these files are committed and a checkout path carries a username. The
 batch file on disk keeps it. Nothing else is filtered.
 
+The two Linux sets were produced by `workflow_dispatch` runs of
+`.github/workflows/measure.yml`; those runs are recorded in `docs/ci-runs.md`,
+because a run ID stops resolving when the repository it belongs to is deleted.
+
 ## Hosts
 
 - **H1** — `Darwin 25.5.0 / docker 29.7.2 / 11cpu`

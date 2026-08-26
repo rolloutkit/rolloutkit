@@ -1950,7 +1950,7 @@ enough between Linux, macOS and CI to move the fallback threshold. It does: by
 |---|---|---|---|
 | macOS warm | `Darwin 25.5.0 / docker 29.7.2 / 11cpu` | Docker Desktop, aarch64, in a VM | the laptop the constants were chosen on, idle |
 | macOS loaded | same | same | the same laptop with `hw.ncpu` spinners pinning every core |
-| Linux CI | `Linux 6.17.0-1022-azure / docker 28.0.4 / 2cpu` | native daemon, amd64, 7938 MB | GitHub `ubuntu-latest`, workflow run 32949002801 |
+| Linux CI | `Linux 6.17.0-1022-azure / docker 28.0.4 / 2cpu` | native daemon, amd64, 7938 MB | GitHub `ubuntu-latest`, workflow run 32949002801, recorded in `docs/ci-runs.md` |
 
 The third row is the control this file has wanted since the sidecar spike: a
 native Linux daemon with no VM between the measurement and the kernel. It is not

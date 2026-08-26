@@ -20,6 +20,11 @@ on:
         description: "Extra batches, space-separated LABEL=PATH (repo-relative)"
         required: false
         default: ""
+      standard_set:
+        description: "Run the standard batches as well as the extras"
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: read
@@ -66,6 +71,8 @@ jobs:
           # substituted before bash sees it, so a dispatch input there is a shell
           # injection with a form around it. Through the environment it is data.
           EXTRA_CONFIGS: ${{ inputs.configs }}
+          RUNS: ${{ inputs.runs }}
+          STANDARD_SET: ${{ inputs.standard_set }}
         run: |
           extra=()
           for pair in $EXTRA_CONFIGS; do
@@ -74,7 +81,9 @@ jobs:
               *) echo "measure: --configs wants LABEL=PATH, got '$pair'" >&2; exit 2 ;;
             esac
           done
-          scripts/measure-set.sh -n "${{ inputs.runs }}" "${extra[@]+"${extra[@]}"}"
+          only=()
+          [ "$STANDARD_SET" = "true" ] || only=(-x)
+          scripts/measure-set.sh -n "$RUNS" "${only[@]+"${only[@]}"}" "${extra[@]+"${extra[@]}"}"
 
       - name: Upload the readings
         if: always()

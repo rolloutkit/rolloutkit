@@ -52,14 +52,21 @@
 # service configurations live outside this repository, so they arrive that way
 # rather than as fixtures.
 #
+# `-x` drops the standard set and runs only those extras. The set exists so the
+# hosts answer the same questions in the same order; asking one new question on
+# every host is the same need, and paying for ten unrelated batches to get one
+# reading on a CI runner is how a host comparison stops being taken.
+#
 # Usage:
 #   scripts/measure-set.sh
 #   scripts/measure-set.sh -n 8 -c service-a=../a/preflightkit.yaml -c service-b=../b/pfk.yaml
+#   scripts/measure-set.sh -x -n 8 -c readiness-never=fixtures/drain-window/readiness-never.yaml
 #
 # Options:
 #   -n N            runs per batch (default 8)
 #   -o DIR          output root (default measurements/set-<host>)
 #   -c LABEL=PATH   an extra configuration to measure, repeatable
+#   -x              run only the -c extras, not the standard set
 #   -h              this help
 
 set -u
@@ -69,10 +76,11 @@ runs=8
 outroot=""
 extra_labels=()
 extra_paths=()
+extras_only=0
 
 usage() { sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
-while getopts ":n:o:c:h" opt; do
+while getopts ":n:o:c:xh" opt; do
   case "$opt" in
     n) runs="$OPTARG" ;;
     o) outroot="$OPTARG" ;;
@@ -84,6 +92,7 @@ while getopts ":n:o:c:h" opt; do
       extra_labels+=("${OPTARG%%=*}")
       extra_paths+=("${OPTARG#*=}")
       ;;
+    x) extras_only=1 ;;
     h) usage; exit 0 ;;
     :) echo "measure-set: -$OPTARG needs a value" >&2; exit 2 ;;
     \?) echo "measure-set: unknown option -$OPTARG" >&2; exit 2 ;;
@@ -102,6 +111,11 @@ for index in "${!extra_paths[@]}"; do
   [ -f "$path" ] || { echo "measure-set: no such config: $path" >&2; exit 2; }
   extra_paths[$index]="$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
 done
+
+if [ "$extras_only" -eq 1 ] && [ "${#extra_paths[@]}" -eq 0 ]; then
+  echo "measure-set: -x runs only the -c extras, and none were given" >&2
+  exit 2
+fi
 
 runner="$repo_root/scripts/measure-runs.sh"
 [ -x "$runner" ] || { echo "measure-set: cannot execute $runner" >&2; exit 2; }
@@ -123,22 +137,23 @@ run_batch() {
   [ "$status" -eq 0 ] || { echo "measure-set: batch '$label' reported failures" >&2; failed=$((failed + 1)); }
 }
 
-empty_dir="$outroot/.no-config"
-rm -rf "$empty_dir" && mkdir -p "$empty_dir" || exit 2
+if [ "$extras_only" -eq 0 ]; then
+  empty_dir="$outroot/.no-config"
+  rm -rf "$empty_dir" && mkdir -p "$empty_dir" || exit 2
 
-run_batch fast     "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml"
-run_batch full     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/preflightkit.yaml"
-run_batch fallback "$empty_dir" -- pfk-fixture-good --port 8000 --ready-url /ready
-run_batch slow     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/readiness-fallback-slow.yaml"
-run_batch repeat3  "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml" -- --repeat 3
+  run_batch fast     "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml"
+  run_batch full     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/preflightkit.yaml"
+  run_batch fallback "$empty_dir" -- pfk-fixture-good --port 8000 --ready-url /ready
+  run_batch slow     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/readiness-fallback-slow.yaml"
+  run_batch repeat3  "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml" -- --repeat 3
 
-# The boundary sweep. Written next to the readings they produce, so a batch
-# directory says which delay it was taken at without a lookup elsewhere.
-sweep_dir="$outroot/.sweep"
-rm -rf "$sweep_dir" && mkdir -p "$sweep_dir" || exit 2
-for ms in 1 2 3 5 10; do
-  seconds="$(python3 -c "print($ms / 1000)")"
-  cat > "$sweep_dir/$ms.yaml" <<YAML
+  # The boundary sweep. Written next to the readings they produce, so a batch
+  # directory says which delay it was taken at without a lookup elsewhere.
+  sweep_dir="$outroot/.sweep"
+  rm -rf "$sweep_dir" && mkdir -p "$sweep_dir" || exit 2
+  for ms in 1 2 3 5 10; do
+    seconds="$(python3 -c "print($ms / 1000)")"
+    cat > "$sweep_dir/$ms.yaml" <<YAML
 version: 1
 target:
   image: pfk-fixture-good
@@ -152,14 +167,15 @@ probes:
 contracts:
   startup: {budget: 15s}
 YAML
-  run_batch "sweep-${ms}ms" "$repo_root" -c "$sweep_dir/$ms.yaml"
-done
+    run_batch "sweep-${ms}ms" "$repo_root" -c "$sweep_dir/$ms.yaml"
+  done
+
+  rmdir "$empty_dir" 2>/dev/null
+fi
 
 for index in "${!extra_paths[@]}"; do
   run_batch "${extra_labels[$index]}" "$repo_root" -c "${extra_paths[$index]}"
 done
-
-rmdir "$empty_dir" 2>/dev/null
 
 echo
 echo "measure-set: done -> $outroot"

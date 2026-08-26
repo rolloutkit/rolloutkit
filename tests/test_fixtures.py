@@ -26,6 +26,8 @@ from xml.etree import ElementTree as ET
 import pytest
 import yaml
 
+from preflightkit.contracts.inflight import MIN_JITTER_RATIO
+
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
 
@@ -34,6 +36,37 @@ pytestmark = pytest.mark.docker
 #: Blocking statuses under `--fail-on error`. WARN is absent: a slow shutdown is
 #: worth reporting, never worth failing a pipeline over.
 BLOCKING = {"FAIL", "ERROR", "INCONCLUSIVE", "SKIP"}
+
+#: SP005 branches that are reached by counting in-flight requests. Every other
+#: branch is decided by a precondition, before the window matters.
+COUNT_DEPENDENT_BRANCHES = {"all_completed", "requests_destroyed"}
+
+
+def _assert_the_window_was_real(entry: dict, result: dict) -> None:
+    """A counted verdict is only worth as much as the window it was counted in.
+
+    Both checks are the tool's own published rules turned back on its fixtures.
+    Without them a row that drifts toward the boundary keeps passing until the
+    day a loaded runner empties its window, and then reports `nothing_in_flight`
+    — an ERROR that reads as a defect in the image rather than in the fixture.
+    """
+    issued = result["actual"]["issued"]
+    in_flight = result["actual"]["in_flight_at_sigterm"]
+    assert in_flight == issued, (
+        f"{entry['name']}: only {in_flight} of {issued} requests were in flight "
+        f"at T0, so {result['branch']} was decided on a partly empty window. The "
+        "fixture is at its margin: lengthen the endpoint it calls, or leave "
+        "contracts.inflight.sigterm_after unset so the window is derived from "
+        "the p50 measured on this runner."
+    )
+
+    ratio = result["evidence"]["window"]["jitter_ratio"]
+    assert ratio is not None and ratio >= MIN_JITTER_RATIO, (
+        f"{entry['name']}: the in-flight window is {ratio}x the measurement "
+        f"jitter, under the {MIN_JITTER_RATIO}x preflightkit itself requires "
+        "before it will treat the boundary as meaningful. A fixture may not "
+        "assert a counted branch from a window the tool would not trust."
+    )
 
 
 def _matrix() -> dict:
@@ -127,6 +160,10 @@ def test_fixture_matches_the_matrix(entry: dict, built_images: None) -> None:
             f"branch — expected {expectation['branch']}, got {result['branch']} "
             f"— {result['summary']}"
         )
+
+    sp005 = entry["expect"].get("SP005")
+    if sp005 and sp005["branch"] in COUNT_DEPENDENT_BRANCHES:
+        _assert_the_window_was_real(entry, results["SP005"])
 
     if entry["name"] == "accept-then-reset-prestop":
         evidence = results["SP004"]["evidence"]

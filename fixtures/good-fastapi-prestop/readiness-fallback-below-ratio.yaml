@@ -1,0 +1,25 @@
+# The default in-flight path with nothing behind it to measure.
+#
+# `contracts.inflight` is absent, so SP005 falls back to readiness, and readiness
+# here returns immediately: no delay is configured, so its p50 is the transport
+# and the framework's own dispatch, roughly a millisecond. That is under the 3ms
+# window floor and under 10x the probe-path jitter on every host measured, so
+# both clauses of the rule refuse it and the verdict is INCONCLUSIVE.
+#
+# Both, deliberately. A fixture that only failed the ratio would be betting on
+# the host staying noisy — a quieter machine raises the ratio without the service
+# changing at all, which is how the previous fixture for this branch was lost.
+# The window floor does not move with the host, so the closest either clause came
+# to its threshold across sixteen runs on two hosts was 2.6x.
+version: 1
+target:
+  image: pfk-fixture-good
+  port: 8000
+deployment:
+  termination_grace_period: 30s
+  drain: {strategy: none}
+probes:
+  readiness: {path: /ready, expected_status: 200}
+contracts:
+  startup: {budget: 15s}
+  readiness: {latency_budget: 500ms}

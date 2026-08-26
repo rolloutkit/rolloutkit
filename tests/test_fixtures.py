@@ -26,7 +26,6 @@ from xml.etree import ElementTree as ET
 import pytest
 import yaml
 
-from preflightkit.contracts.catalog import CATALOG, Evidence
 from preflightkit.contracts.inflight import (
     MIN_JITTER_RATIO,
     MIN_READINESS_WINDOW_MS,
@@ -44,25 +43,6 @@ BLOCKING = {"FAIL", "ERROR", "INCONCLUSIVE", "SKIP"}
 #: SP005 branches that are reached by counting in-flight requests. Every other
 #: branch is decided by a precondition, before the window matters.
 COUNT_DEPENDENT_BRANCHES = {"all_completed", "requests_destroyed"}
-
-
-def _unresolvable_branch(contract_id: str) -> str:
-    """The branch this contract reaches when the measurement cannot resolve.
-
-    Read from the catalog rather than written out here. A branch identifier
-    spelled into a test is a coverage claim, and the one claim this file is not
-    allowed to make is that a `decision_unit` branch was reached: the whole
-    point of that classification is that the image does not decide it, so a test
-    that starts a container and asserts the name is betting on the host. Taking
-    the name from the registry is not the same statement — it says which branch
-    the catalog currently classifies that way, and follows a rename.
-    `tests/test_coverage.py` fails on the other kind.
-    """
-    return next(
-        verdict.branch
-        for verdict in CATALOG[contract_id].verdicts
-        if verdict.evidence is Evidence.DECISION_UNIT
-    )
 
 
 def _assert_the_window_was_real(entry: dict, result: dict) -> None:
@@ -267,6 +247,14 @@ def test_configless_one_line_cli_and_required_skip_gate(
     and it is the second place the toss was hiding, because
     `tests/test_coverage.py` can only see rows in `fixtures/matrix.yaml`.
 
+    The ratio still swings across the threshold here, so that caution stands.
+    What changed is that it is no longer the only clause: `readiness-fallback-
+    below-ratio` asserts the INCONCLUSIVE side for this same shape of service,
+    and can, because its readiness p50 is under the absolute window floor by a
+    margin no amount of host quiet closes. This test stays agnostic anyway. It
+    is invoked configless, so what it is for is the zero-config path agreeing
+    with its own measurement, not the verdict, which the matrix row now owns.
+
     What does not depend on the host is that the report agrees with its own
     measurement. Every assertion below is checked against the ratio that the
     same invocation recorded, so both outcomes are covered and neither is
@@ -324,7 +312,13 @@ def test_configless_one_line_cli_and_required_skip_gate(
     sp005 = next(c for c in document["contracts"] if c["id"] == "SP005")
     unmeasured = document["required_unmeasured"]["contracts"]
     if sp005["status"] == "INCONCLUSIVE":
-        assert sp005["branch"] == _unresolvable_branch("SP005")
+        # Written out rather than looked up. This used to read the name off the
+        # catalog's `decision_unit` classification, because a test that starts a
+        # container may not claim a branch the image does not decide. The branch
+        # is proved by a live row again, so the name is registered and saying it
+        # here is an ordinary claim — `tests/test_coverage.py` checks that it
+        # stays registered, and fails on the name if the row ever goes.
+        assert sp005["branch"] == "readiness_fallback_below_resolution"
         # The verdict has to follow the numbers it published, not merely be
         # allowed by them.
         precondition = sp005["evidence"]["precondition"]

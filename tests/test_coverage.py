@@ -62,9 +62,14 @@ TESTS = Path(__file__).resolve().parent
 #: guarantee it qualifies is gone. This is the same list read the other way: it
 #: fails the moment the two disagree, so moving a branch off live-image proof is
 #: a change someone has to make here, on purpose, and defend in review.
+#: SP005.readiness_fallback_below_resolution was in this set until the fallback
+#: rule gained an absolute window floor. It was here because the ratio compares
+#: the service against the host, so a live fixture proved nothing the host had
+#: not already decided. The floor is not a comparison against the host, and a
+#: readiness endpoint with no work behind it is under it on every machine tried,
+#: so the branch went back to live-image proof and the row came back with it.
 REVIEWED_DECISION_UNIT = {
     ("SP004", "budget_below_teardown_floor"),
-    ("SP005", "readiness_fallback_below_resolution"),
     ("SP006", "budget_below_teardown_floor"),
 }
 

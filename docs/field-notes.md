@@ -2299,3 +2299,184 @@ starting line without the five-minute Docker matrix.
 library only and repeats `CURRENT_RATIO = 10.0` deliberately rather than
 importing it, so that re-running the analysis after a threshold change does not
 silently re-score old batches under the new one.
+
+## More jitter samples, and two rows on the default path (2026-08-26; preflightkit commit: 22ed2e768075ba553481e43aa293a242532ba3f9)
+
+Two questions left over from the fallback rule landing. The first was raised from
+the numbers in the section above: the ratio's denominator is measured from five
+samples and the numerator from ten, and the denominator is the volatile one, so
+raise the sample count and the decision should settle without touching either
+threshold. It does not, and the reason is worth writing down. The second is
+coverage: the default path had one live fixture, and it was on the resolve side.
+
+### The samples the corpus does not contain
+
+The documents record `measurement_jitter_ms` and `measurement_jitter_samples: 5`.
+They do not record the five samples — that field landed in the same commit as the
+window floor, so every document taken before it has the median and nothing under
+it. The estimator cannot be studied from readings that already collapsed it.
+
+What can be studied is the estimator itself. `TrafficProbe.jitter` was pointed at
+201 samples instead of 5 and the ordinary prediction run twelve times warm and
+twelve times under `hw.ncpu` spinners, so each run yields a pool of 201
+consecutive connects taken by the same code at the same point in the lifecycle.
+Sub-sampling a pool is then a model of "what if this run had taken n samples"
+that assumes nothing about the distribution's shape.
+
+Spread of median-of-n around the run's own centre, within one run — pure
+sampling noise, drift excluded by construction:
+
+| condition | n=5 | n=10 | n=15 | n=20 | n=30 |
+| --- | --- | --- | --- | --- | --- |
+| warm | 0.049 | 0.032 | 0.027 | 0.022 | 0.017 |
+| loaded | 0.661 | 0.381 | 0.293 | 0.236 | 0.187 |
+
+The estimator improves exactly as it should. Under load, twenty samples give a
+median 2.8x tighter than five. The premise was right.
+
+### The decision does not move
+
+Run-to-run variation in the recorded jitter is that estimator noise plus real
+drift in the host between runs. On a log scale the two add, so subtracting the
+measured estimator variance from the observed variance leaves the drift, and a
+simulation that draws a drift and then an estimator error reproduces the observed
+spread at n=5 by construction. That reproduction is the calibration check: the
+n=5 column below has to agree with the readings as taken, and it does — 0.12
+against 0.12 averaged over the twenty fallback batches.
+
+Chance two runs of one configuration answer differently:
+
+| batch | observed | n=5 | n=15 | n=20 | n=30 |
+| --- | --- | --- | --- | --- | --- |
+| every Linux CI batch | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| macOS `sweep-2ms` | 0.38 | 0.38 | 0.37 | 0.37 | 0.38 |
+| every other macOS warm batch | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| `fallback-loaded` | 0.50 | 0.44 | 0.44 | 0.45 | 0.45 |
+| `sweep-1ms-loaded` | 0.50 | 0.49 | 0.49 | 0.49 | 0.49 |
+| `sweep-2ms-loaded` | 0.38 | 0.48 | 0.49 | 0.49 | 0.49 |
+| `sweep-3ms-loaded` | 0.47 | 0.44 | 0.42 | 0.42 | 0.42 |
+| `sweep-5ms-loaded` | 0.22 | 0.08 | 0.02 | 0.02 | 0.01 |
+| mean over 20 batches | 0.12 | 0.12 | 0.11 | 0.11 | 0.11 |
+
+One batch out of twenty improves. Splitting the variance of `log(ratio)` by
+source says why:
+
+| | share of total |
+| --- | --- |
+| readiness p50 | 10% |
+| jitter, host drift between runs | 62% |
+| jitter, estimating a median from five samples | 28% |
+
+28% is not nothing, and in the quiet batches it is often the majority — 78%,
+80%, 100% on the Linux runner. But those are the batches whose verdict is
+already settled at n=5, so there is nothing there to win. Where the verdict is
+unsettled the reachable share is 19% to 24%, swamped by drift, and halving it
+moves the disagreement by about 0.01.
+
+The two unsettled cases are unsettled for reasons a sample count cannot touch:
+
+- macOS `sweep-2ms` sits at p50 2.89ms against the 3ms floor. Some runs land
+  above it, some below. The jitter measurement is not an input to that.
+- The loaded batches move because the load itself moves between runs. Pool
+  medians across twelve loaded runs ran 0.208ms to 0.761ms — a 3.7x span in the
+  quantity being estimated, not in the estimate of it. The readiness p50 moves
+  with it (cv 0.13 to 0.34), so the numerator is unstable too.
+
+Cost, measured on the same pools — the sum of the draws, against the run they sit
+in:
+
+| condition | n=5 | n=20 | extra | run total |
+| --- | --- | --- | --- | --- |
+| warm | 0.59ms | 2.35ms | +1.76ms | 2153ms |
+| loaded | 2.97ms | 11.90ms | +8.92ms | 4171ms |
+
+Under a tenth of a percent of the run. The change is affordable and it is not
+worth making: it buys a better number and the same decision. **Not implemented.**
+The samples are recorded now, so the question can be reopened from readings
+rather than from a re-run if the rule is ever revisited.
+
+What this does not settle: every reading here is from two hosts, and the loaded
+condition is eleven spinners on eleven cores, which is a deliberate pathology
+rather than a busy machine. A host whose noise is genuinely heavy-tailed but
+stable between runs — the shape a shared cloud runner might have — would put a
+larger share in the estimator term, and is the case that would change the answer.
+
+### The default path had one fixture and it was on the easy side
+
+`readiness-fallback-slow` covers the resolve side at 200ms. The refusal side had
+no live row at all: it was reclassified `decision_unit` after the fixture
+covering it was found to be rolling for its verdict rather than proving it, at
+1.9x to 15.3x across six runs on one machine.
+
+That classification was correct for the rule as it then stood. The ratio compares
+the service against the host, so the image was not what decided the branch —
+a quieter machine raises the ratio with nothing about the service changing.
+
+The window floor removes that. It is not a comparison against the host, so no
+amount of quiet moves it. A readiness endpoint with no work behind it measures
+0.34–0.65ms on macOS and 1.08–1.16ms on the Linux runner; both are under 3ms by
+2.6x at worst, and *also* under 10x the jitter by 2.7x at worst. Two independent
+clauses have to fail for the verdict, and both do, on both hosts. The branch went
+back to live-image proof, `REVIEWED_DECISION_UNIT` lost its SP005 entry, and
+`readiness-fallback-below-ratio` is the row.
+
+A second row, `readiness-fallback-tight`, resolves at 25ms rather than 200ms.
+200ms is far wider than a readiness probe normally costs, and a resolve path that
+only worked at that scale would look healthy in the matrix and be useless in the
+field. Measured: p50 28.5–30.4ms on macOS, ratio 141–212; on the Linux runner the
+same delay should land near 31ms and a ratio near 62. Margins are 8x on the
+window and 4x on the ratio at the noisier host.
+
+### `cause: below_window` cannot be a live fixture, on arithmetic
+
+The request was for a row pinned to the window clause: readiness p50 near 1ms,
+three times under the floor, refused by the floor rather than by the ratio. It
+does not exist. The cause is reported by whichever clause refuses first, and the
+ratio is checked first, so reaching `below_window` needs the ratio to *clear*:
+
+    p50 >= 10 * jitter   and   p50 < 3ms   ⟹   jitter < 0.3ms
+
+The Linux runner measures 0.43–0.56ms. The interval is empty there. Every window
+that clears 10x on that host is at least 5ms and therefore above the floor, so no
+configuration of any image can produce `below_window` on it.
+
+This is not a prediction. `sweep-1ms` is that configuration and it was run eight
+times on each host: macOS reports `below_window` at p50 1.68ms and ratio 11.6,
+the Linux runner reports `below_ratio` at p50 2.15ms and ratio 4.3. Same config,
+same image, opposite cause. A row pinned to the cause would pass on the laptop
+and fail in CI — which is the host dependence the guard exists to document, so
+writing it into a fixture as an expectation would be backwards.
+
+The branch is what the matrix asserts, and the branch is the same on both hosts.
+`below_window` stays proved by `tests/test_preconditions.py`, which feeds the
+decision function the two numbers directly and does not need a host that can
+produce them.
+
+### The reclassification had a third file in it, and only Docker found it
+
+Moving the branch off `decision_unit` passed ruff and the whole non-Docker suite,
+including the coverage gate that exists to police exactly this kind of edit. The
+Docker matrix failed on `test_configless_one_line_cli_and_required_skip_gate`
+with a bare `StopIteration`.
+
+The cause is a helper in `tests/test_fixtures.py` that asked the catalog which
+SP005 branch was classified `decision_unit` and used the answer as the name to
+assert. The indirection was deliberate and its reasoning was sound while it held:
+a test that starts a container may not name a `decision_unit` branch, because the
+classification says the image is not what decides it, so the name had to come
+from the registry rather than from the test. After the reclassification there was
+no such branch to find, and `next()` on an empty generator raised.
+
+Two things are worth keeping from this. The first is that the helper's premise
+expired with the classification: the branch is registered by a matrix row now, so
+naming it in a test is an ordinary claim and `test_no_test_names_a_branch_the_
+registry_cannot_see` is what holds it. The literal name is back in the test with
+that written next to it.
+
+The second is where the gate does not reach. It checks that every claim is
+registered and that the two classifications agree; it does not check that code
+reading the classification still has something to read. That gap is only visible
+from a run, and this one cost a five-minute matrix to find. It is narrow — one
+helper, now gone — but the general shape is that the catalog is data other code
+queries, and a query that returns nothing is not a coverage failure, so nothing
+in the coverage file is looking for it.

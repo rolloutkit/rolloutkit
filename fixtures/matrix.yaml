@@ -45,6 +45,30 @@ fixtures:
     expect:
       SP005: {status: PASS, branch: all_completed}
 
+  - name: readiness-fallback-tight
+    image: pfk-fixture-good
+    config: good-fastapi-prestop/readiness-fallback-tight.yaml
+    description: >
+      The same resolve as readiness-fallback-slow at 25ms instead of 200ms — the
+      near end of the range a real readiness probe occupies. Proves the fallback
+      resolves on a window a service might plausibly have, not only on one wide
+      enough to make the comparison trivial.
+    expect:
+      SP005: {status: PASS, branch: all_completed}
+
+  - name: readiness-fallback-below-ratio
+    image: pfk-fixture-good
+    config: good-fastapi-prestop/readiness-fallback-below-ratio.yaml
+    description: >
+      Readiness with no delay at all, so the fallback window is the transport
+      plus dispatch and nothing else. Both clauses of the rule refuse it — under
+      10x the probe-path jitter and under the 3ms absolute floor — and SP005
+      reports the refusal rather than guessing. The precondition's cause names
+      the ratio here and may name the window on a very quiet host; the branch is
+      the same either way, which is why the row asserts the branch.
+    expect:
+      SP005: {status: INCONCLUSIVE, branch: readiness_fallback_below_resolution}
+
   - name: startup-within-resolution
     image: pfk-fixture-stdlib
     config: good-fastapi-prestop/startup-within-resolution.yaml

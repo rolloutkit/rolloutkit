@@ -440,14 +440,22 @@ CATALOG: dict[str, ContractDoc] = {
                 "contracts.inflight was explicitly set to null. Under --fail-on "
                 "this still blocks, because SP005 is a required contract.",
             ),
-            # Classified decision_unit because the branch is decided by
-            # `readiness_p50 / jitter < MIN_JITTER_RATIO` — two numbers already
-            # measured, compared. The image contributes nothing: the same image
-            # lands on either side depending on the host's jitter floor. A live
-            # fixture measured 1.9x to 15.3x across six runs on one machine and
-            # crossed the threshold in two of them, so the container was not
-            # proving the comparison, it was rolling for it. See
-            # docs/field-notes.md, "A second row, much closer to the boundary".
+            # This was decision_unit while the rule was the ratio alone. The
+            # ratio compares the service against the host, so the image did not
+            # decide the branch: the same image landed on either side depending
+            # on how quiet the machine was, and the live fixture that used to
+            # cover this measured 1.9x to 15.3x across six runs on one machine,
+            # crossing the threshold in two of them. It was not proving the
+            # comparison, it was rolling for it. See docs/field-notes.md,
+            # "A second row, much closer to the boundary".
+            #
+            # The absolute window floor changed that, which is why the row is
+            # back. A readiness endpoint with nothing behind it measures well
+            # under 3ms on every host tried, and no amount of quiet raises it,
+            # because the floor is not a comparison against the host. The image
+            # is the input again. `readiness-fallback-below-ratio` fails both
+            # clauses, and the nearer of the two to its threshold across sixteen
+            # runs on two hosts was 2.6x away.
             Verdict(
                 "readiness_fallback_below_resolution",
                 "INCONCLUSIVE",
@@ -456,11 +464,6 @@ CATALOG: dict[str, ContractDoc] = {
                 "probe-path jitter or in absolute terms. Pass --inflight-path with "
                 "a slower representative endpoint. The precondition evidence names "
                 "which of the two refused.",
-                evidence=Evidence.DECISION_UNIT,
-                proof=(
-                    "tests/test_preconditions.py::"
-                    "test_readiness_fallback_below_jitter_resolution_is_inconclusive"
-                ),
             ),
             Verdict(
                 "shutdown_never_started",

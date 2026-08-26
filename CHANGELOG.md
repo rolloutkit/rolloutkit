@@ -53,6 +53,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes, not only p50 and max. The samples were already paid for and discarded,
   and without them a revision of the fallback rule needs a fresh measurement
   campaign rather than the readings already in hand.
+- The SP005 readiness fallback refusal is proved by a live fixture again. It
+  was reclassified `decision_unit` when a fixture for it was found to be rolling
+  for its verdict — the ratio compares the service against the host, so a
+  quieter machine moved the answer with nothing about the image changing. The
+  absolute window floor is not a comparison against the host, so a readiness
+  endpoint with no work behind it fails both clauses on every machine measured,
+  by 2.6x at worst. `readiness-fallback-below-ratio` is that row, and
+  `readiness-fallback-tight` covers the resolve side at 25ms rather than only at
+  the 200ms of `readiness-fallback-slow`.
 - Branch coverage is enforced against Python tests as well as against
   `fixtures/matrix.yaml`. A test that names a verdict branch has to have that
   branch registered — by a matrix row, or by being the proof the catalog names

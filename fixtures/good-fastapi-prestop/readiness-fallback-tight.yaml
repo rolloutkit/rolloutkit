@@ -1,0 +1,21 @@
+# The fallback resolving on a window a real service might actually have.
+#
+# `readiness-fallback-slow` proves the same branch at 200ms, which is far wider
+# than anything a readiness probe normally costs; a resolve path that only worked
+# at that scale would look healthy here and be useless in the field. 25ms is the
+# other end of the useful range: still 8x the window floor and 4x the jitter
+# ratio on the noisier of the two hosts measured, but an order of magnitude
+# closer to what a service with a database check reports.
+version: 1
+target:
+  image: pfk-fixture-good
+  port: 8000
+  env: {READINESS_DELAY_SECONDS: "0.025"}
+deployment:
+  termination_grace_period: 30s
+  drain: {strategy: none}
+probes:
+  readiness: {path: /ready, expected_status: 200}
+contracts:
+  startup: {budget: 15s}
+  readiness: {latency_budget: 500ms}

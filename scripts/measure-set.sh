@@ -18,7 +18,13 @@
 #   fallback  The configless one-liner. This is the path whose resolution is in
 #             question: with no in-flight path configured, SP005 falls back to
 #             readiness, and whether that can be told apart from measurement
-#             noise is what `MIN_JITTER_RATIO` decides.
+#             noise is what `MIN_JITTER_RATIO` decides. Readiness answers in
+#             microseconds here, so the honest verdict is INCONCLUSIVE.
+#   slow      The same fallback path against a readiness endpoint that sleeps
+#             200ms. Same image, same route, one environment variable apart.
+#             This is the half of the pair the rule is supposed to resolve, and
+#             without it a batch only shows how often the rule says no — not
+#             whether it says yes when it should.
 #   repeat3   `fast` again with `--repeat 3`. Three predictions inside one
 #             process separates the per-process cost (image preparation,
 #             dependency resolution) from the per-prediction cost, which is the
@@ -111,6 +117,7 @@ rm -rf "$empty_dir" && mkdir -p "$empty_dir" || exit 2
 run_batch fast     "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml"
 run_batch full     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/preflightkit.yaml"
 run_batch fallback "$empty_dir" -- pfk-fixture-good --port 8000 --ready-url /ready
+run_batch slow     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/readiness-fallback-slow.yaml"
 run_batch repeat3  "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml" -- --repeat 3
 
 for index in "${!extra_paths[@]}"; do

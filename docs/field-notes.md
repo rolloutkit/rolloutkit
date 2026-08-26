@@ -1221,6 +1221,16 @@ The service-a SP005 result is profile-sensitive in these runs: `in_app` was
 FAIL across both profiles. The table retains the raw populations because a
 single aggregate would hide that spread.
 
+Added 2026-08-26: one row above no longer describes what the tool would say.
+`service-a, in_app, 3` reports `FAIL / in_app_listener_closed_early` on a
+-595.55ms accept window, and SP004 stopped reading a negative window as a
+listener-close time that day. A last accept further before T0 than one probe
+interval now resolves to `INCONCLUSIVE / accept_window_unmeasured`, with the
+raw -595.55ms kept in evidence. The other two service-a `in_app` rows are
+positive windows and are unaffected, and the `prestop` rows never depended on
+the window at all. The table is left as it was measured; this is what the same
+measurement would be judged as now.
+
 ### Go fixtures
 
 | Fixture | Run | SP003 | SP005 | Completed / in flight (rate) | Jitter |

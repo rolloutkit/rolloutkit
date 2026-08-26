@@ -1,3 +1,4 @@
+$ preflightkit explain SP004
 SP004 — drain-window
 Measures: Opens a fresh TCP connection to the target every 50ms and sends a real HTTP request on it,
 so the measurement is application accept rather than kernel backlog. Under in_app and none the 
@@ -9,6 +10,10 @@ Preconditions:
 application-owned drain transition to measure.
   - in_app only — traffic must reach the container directly. A published port proxy accepts on the 
 application's behalf, so its listener timestamps describe the proxy, not the process.
+  - in_app only — the accept window must be a measurement. The probe has to still be getting 
+accepted when the signal lands, or there is no post-T0 listener behaviour on record; a last accept 
+further before T0 than one probe interval means nothing sampled the signal, and the verdict says 
+which of the three ways that happened.
   - in_app only — in_app_window must exceed 20 probe intervals (1000ms at the 50ms default); a 
 smaller window cannot be separated from the probe's own resolution.
   - Every strategy — a shutdown budget of 2s or less must exceed the measured teardown floor. Longer
@@ -42,6 +47,14 @@ Verdicts (branch, by drain strategy):
     INCONCLUSIVE port_proxy_likely
       Traffic went through a published-port proxy — the Docker Desktop host-fallback path — so      
       listener timing describes the proxy. The unresolved candidate verdict is kept in evidence.    
+    INCONCLUSIVE accept_window_unmeasured
+      accept_window_ms is not a listener-close time in this run. Either the probe was never accepted
+      at all, or its last accepted connection lands further before T0 than one probe interval, so   
+      nothing it did after the signal was observed. The summary names which: the probe still waiting
+      on that connection when the signal landed, a saturated accept queue dropping its SYNs, or a   
+      listener already gone — whichever the attempts between that last accept and T0 support.       
+      Reported as the negative number it is, in evidence, rather than as a listener that closed     
+      before it was asked to.                                                                       
   none:
     WARN         none_uncovered
       No mechanism covers routing propagation, so connection loss is expected by declaration and    

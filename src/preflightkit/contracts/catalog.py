@@ -253,8 +253,8 @@ CATALOG: dict[str, ContractDoc] = {
             "in_app only — the accept window must be a measurement. The probe has "
             "to still be getting accepted when the signal lands, or there is no "
             "post-T0 listener behaviour on record; a last accept further before T0 "
-            "than one probe interval says the probe stopped getting through while "
-            "the process was still serving normally.",
+            "than one probe interval means nothing sampled the signal, and the "
+            "verdict says which of the three ways that happened.",
             "in_app only — in_app_window must exceed 20 probe intervals (1000ms at "
             "the 50ms default); a smaller window cannot be separated from the "
             "probe's own resolution.",

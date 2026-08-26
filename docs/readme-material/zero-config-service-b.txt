@@ -1,0 +1,66 @@
+$ preflightkit test service-b:latest --port 8000 --ready-url /healthz/ --env ALLOWED_HOSTS='*'
+starting the traffic probe
+starting the target and waiting for readiness: service-b:latest
+measuring the baseline: 25 requests plus keep-alive
+sending SIGTERM and observing the shutdown
+removing the containers and the network
+
+preflightkit 0.1.0   run pfk_5642VBZLJM
+Target: service-b:latest
+Profile: kubernetes, grace 30s, drain none -> shutdown budget 30s
+
+STARTUP
+  startup resolution                          193ms
+  TCP :8000 open                              7.2s
+  GET /healthz/ -> 200                        7.73s
+  PID 1 signal disposition                    sh, no SIGTERM handler - the kernel will discard it
+
+BASELINE (before the signal)
+  GET /healthz/ x25                           25/25 ok -> 200
+  request duration p50 / p90                  7ms / 8ms
+
+SHUTDOWN TIMELINE
+  T2  last new connection accepted            +29979ms (±50ms)
+
+CONTRACTS
+  SP001 startup                PASS   ready in 7.73s (budget 15s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0ms, max 139ms)
+  SP003 signal-handling        FAIL   shutdown never started: PID 1 (sh) showed no reaction to 
+SIGTERM
+        - The entrypoint is shell-form (/bin/sh -c ...). The shell becomes PID 1 and may not forward
+SIGTERM to the application. Use exec-form (JSON array) or `exec` the process.
+        - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
+the measurement would describe tini, not your app.
+        - PID 1 in a container is the init of a PID namespace, and the kernel silently discards 
+signals whose disposition is still the default for it. The application was never woken; a longer 
+grace period would only make the wait longer. Install a SIGTERM handler, or run the application as a
+child of an init that forwards signals.
+  SP004 drain-window           WARN   no drain mechanism covers routing propagation; production 
+rollouts can send traffic to a process that is shutting down. Add a preStop sleep, or test 
+application-owned draining with --drain in_app
+        - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
+  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.9ms, jitter 0.2ms, ratio 5.2x is below 
+the required 10x; the in-flight window cannot be distinguished from measurement noise — point 
+--inflight-path at a slower endpoint
+        - 0 of 0 requests finished before the signal. The window closed early: lower 
+contracts.inflight.sigterm_after, or leave it unset and let it be derived from the baseline p50.
+        - The experiment and traffic measurement completed, but this unresolved candidate was not 
+published because its precondition did not hold.
+  SP006 shutdown-deadline      FAIL   killed by SIGKILL at the end of the 30s budget (exit 137); the
+process never shut itself down
+        - Budget is terminationGracePeriod (30s) minus preStop (0ms). The hook is spent from the 
+same window.
+        - In Kubernetes this is the point where every open connection is severed, whatever is still 
+running.
+
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 3.48 | probe sidecar | probe-path jitter 
+~0.2ms | teardown not_calibrated
+  Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
+sidecar, not to the nanosecond.
+  T4 is the daemon's own kill->die pair (30149ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 30167ms.
+
+Result: 2 FAIL, 1 WARN
+Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 
+--allow-inconclusive is set.
+report-only: exit 0. Use --fail-on error to block CI.

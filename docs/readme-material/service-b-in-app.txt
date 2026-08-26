@@ -5,47 +5,53 @@ measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_JHQA2BEPLQ
+preflightkit 0.1.0   run pfk_YNM5WNFYPI
 Target: service-b:latest
 Profile: kubernetes, grace 30s, drain in_app -> shutdown budget 30s
 
 STARTUP
-  startup resolution                          200ms
-  TCP :8000 open                              6.16s
-  GET /healthz/ -> 200                        6.59s
+  startup resolution                          181ms
+  TCP :8000 open                              6.63s
+  GET /healthz/ -> 200                        7.08s
   PID 1 signal disposition                    gunicorn, SIGTERM handler installed
 
 BASELINE (before the signal)
   GET /api/subjects/ x25                      25/25 ok -> 200
-  request duration p50 / p90                  115ms / 172ms
+  request duration p50 / p90                  104ms / 158ms
   sigterm_after (from config)                 300ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            +-217ms (±50ms)
+  T2  last new connection accepted            -172ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 6.59s (budget 1m0s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0ms, max 95ms)
+  SP001 startup                PASS   ready in 7.08s (budget 1m0s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0ms, max 105ms)
   SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
-283ms
-  SP004 drain-window           FAIL   listener closed -217ms after T0, but must remain open for 
-5000ms; the load balancer is still routing
+289ms
+  SP004 drain-window           INCONCLUSIVE  the probe was still waiting on its last accepted 
+connection when the signal landed — accept window not measured: the last connection the probe got 
+accepted was 172ms before T0, further back than the 50ms probe interval, so what the listener did 
+after the signal was never observed. The raw accept_window_ms is in evidence
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
+        - The experiment and traffic measurement completed, but this unresolved candidate was not 
+published because its precondition did not hold.
   SP005 inflight-completion    FAIL   4/66 completed, 62 destroyed
-        request #33 reset_before_response during awaiting_response +72ms
-        request #39 reset_before_response during awaiting_response +72ms
-        request #40 reset_before_response during awaiting_response +72ms
-        request #42 reset_before_response during awaiting_response +72ms
-        request #43 reset_before_response during awaiting_response +72ms
+        request #38 reset_before_response during awaiting_response +67ms
+        request #40 reset_before_response during awaiting_response +67ms
+        request #41 reset_before_response during awaiting_response +66ms
+        request #42 reset_before_response during awaiting_response +66ms
+        request #43 reset_before_response during awaiting_response +67ms
         ... and 57 more destroyed requests (--format json lists every one)
-  SP006 shutdown-deadline      PASS   exited in 283ms of 30s
+  SP006 shutdown-deadline      PASS   exited in 289ms of 30s
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.98 | probe sidecar | probe-path jitter 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 3.18 | probe sidecar | probe-path jitter 
 ~0.2ms | teardown not_calibrated
   Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (283ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 290ms.
+  T4 is the daemon's own kill->die pair (289ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 297ms.
 
-Result: 2 FAIL
+Result: 1 FAIL
+Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 
+--allow-inconclusive is set.
 report-only: exit 0. Use --fail-on error to block CI.

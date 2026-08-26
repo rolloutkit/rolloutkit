@@ -2682,3 +2682,121 @@ H1; the same batch on H2 through `.github/workflows/measure.yml` with
 `standard_set=false`, which is what `-x` was added for. Before-readings on
 `32b3936` and `840f3fa`, after-readings on `e9ddd2b` (H1) and `99ed5e5` (H2).
 The H2 batches are Actions runs `32996171026` and `32998568732`.
+
+---
+
+## Where post-T0 resets actually land (2026-08-27; preflightkit commit: 7788eb3789e4283b8aa2d23c2a2f384ea79891c6)
+
+SP004 failed a run for any reset it saw after T0. The question this batch was
+run to answer is whether that population is one thing or two: whether the
+connections destroyed when a listening socket closes are the same event as a
+connection dropped mid-window, or a different one wearing the same evidence.
+
+They are two, and on this evidence they do not touch.
+
+### The corpus could not answer it
+
+Replaying all 242 reports on disk — 240 in `measurements/`, 2 in `docs/` — gives
+224 runs under `none`, 16 under `prestop`, and **zero under `in_app`**. Three
+reset events exist in it, all three under `none`, where the verdict is
+`none_uncovered` before listener behaviour is consulted. The corpus holds no
+data on this question at all; everything below was measured for it.
+
+### The two populations
+
+176 runs, 534 reset events. Offsets are milliseconds after T0, and
+`started_offset_ms` is when the probe asked for the connection, not when the
+handshake finished.
+
+| host | batch | runs | events | started, inside the window | started, after it |
+|---|---|---|---|---|---|
+| H1 | `reset-in-app` (window 1200) | 8 | 158 | 11.8 – 1005.7 | — |
+| H2 | `reset-in-app` (window 1200) | 16 | 322 | 11.9 – 1018.5 | — |
+| H1 | service-b, SP005 off (window 5000) | 8 | 8 | 30.2 – 72.7 | — |
+| H1 | honest, close at 800 (window 1200) | 8 | 8 | 777.3 – 784.8 | — |
+| H1 | honest, lag 150 (window 1200) | 8 | 8 | — | 1993.9 – 2012.9 |
+| H2 | honest, lag 150 (window 1200) | 8 | 8 | — | 1952.5 – 1953.1 |
+| H1 | honest, lag 400 (window 1200) | 8 | 8 | — | 1598.1 – 1618.0 |
+| H2 | honest, lag 400 (window 1200) | 8 | 8 | — | 1600.4 – 1602.3 |
+| H1 | honest, close at 1250 (window 1200) | 8 | 6 | — | 1255.1 – 1267.8 |
+
+496 events inside, 38 after. The inside population ends at +1018.5ms against a
+1200ms window; the after population begins at +1255.1ms, and that lowest reading
+is the deliberately-near specimen. Excluding it, the after population begins at
++1598.1ms. The gap between the two is 236ms at its narrowest and 580ms without
+the specimen chosen to sit in it — against a probe resolved to 50ms.
+
+Twelve more batches produced no resets at all: `drains-in-app`,
+`immediate-in-app`, `readiness-never`, `thin-margin` (16 runs each across both
+hosts), honest at lag 0 and lag 40 (24 runs), and service-b as configured.
+
+### The mechanism, and why the split is not arbitrary
+
+The reset offset equals `CLOSE_AFTER_MS` in every configuration measured: close
+at 2000 gave resets at 2010–2030, close at 1250 gave 1269–1282, close at 800
+gave 815–830. The RST comes from the close, not from anything the application
+decided to do to that connection.
+
+The class appears only once the application's accept latency exceeds the probe's
+own interval: at lag 0, 0 events in 16 runs; at lag 40, 0 in 8; at lag 150,
+16 runs of 16; at lag 400, 16 of 16. That is the honest reading of it — the
+backlog has to hold something before a close can destroy anything, and it holds
+something exactly when the application is too busy to drain it. A well-behaved
+server under load produces this. It is not a defect and SP004 now says so.
+
+The classification keys on `started_offset_ms` for a reason the same batches
+measured: the gap between asking for a connection and having the handshake
+complete was 0.6–6.9ms on H1 and 1.1–1.6ms on H2, and it is the target's accept
+latency. Keying on `connected_offset_ms` would move a connection across the
+boundary because the target was busy, which is the thing being tested.
+
+### What the rule changes
+
+Simulated over every run above: 38 change, all of them the honest specimen —
+lag 150 (×16) and lag 400 (×16) become PASS `in_app_covered`, and close-at-1250
+(×6) becomes WARN `in_app_thin_margin`. Every other run is bit-identical,
+including all 480 events of `accept-then-reset-in-app`, which stay inside the
+window by a margin of 181ms at worst.
+
+### Coverage this could not reach
+
+service-a exists nowhere on either host — no image, no source. Its rows in this
+file only ever reached `in_app_listener_closed_early`, with windows of 31.96,
+67.63, 76.30, 82.54, 97.98 and 116.90ms; it never produced a reset. service-b
+was built from an external source commit (`efa24f341b58`) and cannot be built
+from this repository, so it cannot reach H2.
+
+### The fixture that was added, and the one that was not
+
+`backlog-reset-after-window-in-app` is the live source for the after-window
+class. It is *not* the specimen measured above, and the difference is
+deliberate. The honest app produced the class by sleeping after each `accept()`,
+which has two costs it should not pay: the sleep is in force before T0 as well,
+so its readiness baseline flapped on one timed-out probe in all 16 runs and
+SP002 failed for a reason unrelated to what the row is for; and the close raced
+the app's own next `accept()`, winning by 16–30ms. Sixteen of sixteen is not the
+same as sixteen of sixteen with a margin.
+
+The shipped fixture keeps the mechanism and drops the race. It serves the whole
+window, stops accepting at +1800ms while the socket stays listening, and closes
+at +2075ms. The reset therefore starts 600ms past the window by construction,
+and the close lands mid-attempt: eight runs on H1 put the start at 1843.9 –
+1877.6ms and the reset at 2086.9 – 2098.3ms, which is ~230ms after the attempt
+opened and ~250ms before that attempt's own 500ms timeout. All six contracts
+identical in 8/8, SP002 among them.
+
+The close-at-1250 specimen was **not** added, and the reason is written into
+`fixtures/matrix.yaml` next to the row so it is read by whoever next thinks the
+pair looks incomplete. At +55ms past the window it splits 6/8 `accept_then_reset`
+and 2/8 `in_app_listener_closed_early` today, and the window rule does not settle
+that — it is a coin toss between two branches, not a misclassification. A
+specimen 55ms from a boundary measured with a 50ms probe is measuring the probe.
+
+### How these were taken
+
+`scripts/measure-set.sh -x -n 8 -c LABEL=PATH` on H1 for each batch, and the
+same through `.github/workflows/measure.yml` with `standard_set=false` on H2.
+The honest specimen and its configs were built in a scratch directory and are
+not in the repository; what is in the repository is `fixtures/backlog-reset/`,
+whose eight-run batch was taken with `preflightkit test -c
+fixtures/backlog-reset/after-window.yaml --format json` on H1.

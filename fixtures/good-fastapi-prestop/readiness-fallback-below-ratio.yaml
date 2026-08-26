@@ -9,8 +9,18 @@
 # Both, deliberately. A fixture that only failed the ratio would be betting on
 # the host staying noisy — a quieter machine raises the ratio without the service
 # changing at all, which is how the previous fixture for this branch was lost.
-# The window floor does not move with the host, so the closest either clause came
-# to its threshold across sixteen runs on two hosts was 2.6x.
+#
+# Only one clause has to refuse for the verdict to hold, so the margin that
+# matters is the larger of the two, and the interesting part is that it is a
+# different clause on each host. Eight runs on each:
+#
+#   macOS     p50 0.33-0.79ms  floor 3.8x clear   ratio 1.8-4.1   ratio 2.4x clear
+#   Linux CI  p50 1.01-1.19ms  floor 2.5x clear   ratio 2.1-2.4   ratio 4.2x clear
+#
+# On macOS the probe path is quiet, so the ratio runs up and the absolute floor
+# is what holds. On the Linux runner the floor is closer and the ratio is what
+# holds. Neither clause is comfortable on both hosts; together they are, at 3.8x
+# worst case. That is the argument for the row existing, not the ratio alone.
 version: 1
 target:
   image: pfk-fixture-good

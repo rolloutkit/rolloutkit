@@ -454,8 +454,10 @@ CATALOG: dict[str, ContractDoc] = {
             # under 3ms on every host tried, and no amount of quiet raises it,
             # because the floor is not a comparison against the host. The image
             # is the input again. `readiness-fallback-below-ratio` fails both
-            # clauses, and the nearer of the two to its threshold across sixteen
-            # runs on two hosts was 2.6x away.
+            # clauses on both hosts, and only one of them has to fail: over
+            # eight runs each, the floor is 3.8x clear on macOS where the ratio
+            # is thin, and the ratio is 4.2x clear on the Linux runner where the
+            # floor is thin. Different clause on each host, 3.8x worst case.
             Verdict(
                 "readiness_fallback_below_resolution",
                 "INCONCLUSIVE",

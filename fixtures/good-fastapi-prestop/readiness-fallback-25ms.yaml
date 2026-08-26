@@ -1,0 +1,31 @@
+# The fallback resolving on a window a real service might actually have.
+#
+# `readiness-fallback-slow` proves the same branch at 200ms, which is far wider
+# than anything a readiness probe normally costs; a resolve path that only worked
+# at that scale would look healthy here and be useless in the field. 25ms is the
+# other end of the useful range, and an order of magnitude closer to what a
+# service with a database check behind /ready reports.
+#
+# Named for the delay and not for how close it sits to anything. It was called
+# `tight` first, which read as "near the boundary" and is wrong by a factor of
+# five. Both clauses have to pass for this to resolve, so its margin is the
+# smaller of the two, measured over eight runs on each of two hosts:
+#
+#   macOS     p50 27.20-30.29ms  =  9.1x the 3ms floor   ratio 118-251  = 11.8x
+#   Linux CI  p50 26.45-26.82ms  =  8.8x the 3ms floor   ratio  50-60   =  5.0x
+#
+# 5.0x on the noisier host is the number that matters. The ratio is the tighter
+# clause there and it is still five times clear.
+version: 1
+target:
+  image: pfk-fixture-good
+  port: 8000
+  env: {READINESS_DELAY_SECONDS: "0.025"}
+deployment:
+  termination_grace_period: 30s
+  drain: {strategy: none}
+probes:
+  readiness: {path: /ready, expected_status: 200}
+contracts:
+  startup: {budget: 15s}
+  readiness: {latency_budget: 500ms}

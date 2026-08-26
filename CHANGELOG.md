@@ -63,10 +63,13 @@ working version, not to anything previously published.
   for its verdict — the ratio compares the service against the host, so a
   quieter machine moved the answer with nothing about the image changing. The
   absolute window floor is not a comparison against the host, so a readiness
-  endpoint with no work behind it fails both clauses on every machine measured,
-  by 2.6x at worst. `readiness-fallback-below-ratio` is that row, and
-  `readiness-fallback-tight` covers the resolve side at 25ms rather than only at
-  the 200ms of `readiness-fallback-slow`.
+  endpoint with no work behind it fails both clauses on every machine measured.
+  Only one has to fail, and a different one is the robust clause on each host:
+  the floor is 3.8x clear on macOS and the ratio 4.2x clear on the Linux runner,
+  over eight runs each. `readiness-fallback-below-ratio` is that row, and
+  `readiness-fallback-25ms` covers the resolve side at 25ms rather than only at
+  the 200ms of `readiness-fallback-slow`, 5.0x clear of the tighter of its two
+  clauses on the noisier host.
 - Branch coverage is enforced against Python tests as well as against
   `fixtures/matrix.yaml`. A test that names a verdict branch has to have that
   branch registered — by a matrix row, or by being the proof the catalog names

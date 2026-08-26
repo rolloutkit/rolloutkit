@@ -45,14 +45,16 @@ fixtures:
     expect:
       SP005: {status: PASS, branch: all_completed}
 
-  - name: readiness-fallback-tight
+  - name: readiness-fallback-25ms
     image: pfk-fixture-good
-    config: good-fastapi-prestop/readiness-fallback-tight.yaml
+    config: good-fastapi-prestop/readiness-fallback-25ms.yaml
     description: >
-      The same resolve as readiness-fallback-slow at 25ms instead of 200ms — the
-      near end of the range a real readiness probe occupies. Proves the fallback
-      resolves on a window a service might plausibly have, not only on one wide
-      enough to make the comparison trivial.
+      The same resolve as readiness-fallback-slow at 25ms instead of 200ms —
+      the near end of the range a real readiness probe occupies. Proves the
+      fallback resolves on a window a service might plausibly have, not only on
+      one wide enough to make the comparison trivial. Resolving takes both
+      clauses, so the margin is the smaller of them: over eight runs on each of
+      two hosts the worst was 5.0x, the ratio on the Linux runner.
     expect:
       SP005: {status: PASS, branch: all_completed}
 

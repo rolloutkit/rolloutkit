@@ -2452,19 +2452,46 @@ the service against the host, so the image was not what decided the branch —
 a quieter machine raises the ratio with nothing about the service changing.
 
 The window floor removes that. It is not a comparison against the host, so no
-amount of quiet moves it. A readiness endpoint with no work behind it measures
-0.34–0.65ms on macOS and 1.08–1.16ms on the Linux runner; both are under 3ms by
-2.6x at worst, and *also* under 10x the jitter by 2.7x at worst. Two independent
-clauses have to fail for the verdict, and both do, on both hosts. The branch went
-back to live-image proof, `REVIEWED_DECISION_UNIT` lost its SP005 entry, and
-`readiness-fallback-below-ratio` is the row.
+amount of quiet moves it. The branch went back to live-image proof,
+`REVIEWED_DECISION_UNIT` lost its SP005 entry, and `readiness-fallback-below-ratio`
+is the row.
 
-A second row, `readiness-fallback-tight`, resolves at 25ms rather than 200ms.
-200ms is far wider than a readiness probe normally costs, and a resolve path that
-only worked at that scale would look healthy in the matrix and be useless in the
-field. Measured: p50 28.5–30.4ms on macOS, ratio 141–212; on the Linux runner the
-same delay should land near 31ms and a ratio near 62. Margins are 8x on the
-window and 4x on the ratio at the noisier host.
+Both rows were then measured properly rather than argued for — eight runs on each
+of the two hosts, which is the same batch size the rest of this document uses, and
+not the single CI pass that a matrix run gives.
+
+`readiness-fallback-below-ratio`, the refusal. The verdict holds if *either*
+clause refuses, so its margin is the larger of the two:
+
+| host | readiness p50 | floor margin | ratio | ratio margin |
+| --- | --- | --- | --- | --- |
+| macOS | 0.33–0.79ms | **3.8x** | 1.76–4.09 | 2.4x |
+| Linux CI | 1.01–1.19ms | 2.5x | 2.08–2.41 | **4.2x** |
+
+The bolded clause is a different one on each host, and that is the whole
+argument for the row. macOS has a quiet probe path, so the ratio climbs and the
+absolute floor is what holds the verdict down. The Linux runner has 3x the
+jitter, so the ratio stays low while its readiness p50 creeps to within 2.5x of
+the floor. Either clause alone would be uncomfortable on one of the two
+machines; the pair is 3.8x clear at worst. The old fixture for this branch had
+only the ratio, and that is exactly why it was lost.
+
+`readiness-fallback-25ms`, the resolve. This one needs *both* clauses to pass,
+so its margin is the smaller:
+
+| host | readiness p50 | floor margin | ratio | ratio margin |
+| --- | --- | --- | --- | --- |
+| macOS | 27.20–30.29ms | 9.1x | 118–251 | 11.8x |
+| Linux CI | 26.45–26.82ms | 8.8x | 50–60 | **5.0x** |
+
+5.0x is the number the row lives on. It is at 25ms rather than the 200ms of
+`readiness-fallback-slow` because 200ms is far wider than a readiness probe
+normally costs, and a resolve path proved only at that scale would look healthy
+in the matrix and be useless in the field.
+
+It was called `readiness-fallback-tight` when it was added, which reads as "near
+the boundary" and is wrong by a factor of five. Named for the delay now, which
+cannot go stale the way an adjective does.
 
 ### `cause: below_window` cannot be a live fixture, on arithmetic
 

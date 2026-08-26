@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from preflightkit.contracts.base import Status
+from preflightkit.contracts.inflight import MIN_JITTER_RATIO
 from preflightkit.engine.context import RunReport
 from preflightkit.evidence.model import RunOutcome, Session
 from preflightkit.evidence.redact import Redactor
@@ -114,6 +115,7 @@ def build(session: Session, version: str) -> dict[str, Any]:
 
 def _environment(report: RunReport) -> dict[str, Any]:
     return {
+        "host_id": report.host_id,
         "host_os": report.host_os,
         "cpu_count": report.cpu_count,
         "load_average": list(report.load_average) if report.load_average else None,
@@ -133,6 +135,53 @@ def _environment(report: RunReport) -> dict[str, Any]:
             f"{report.probe_location}."
         ),
         "docker_init_injected": False,
+    }
+
+
+def _round(value: float | None) -> float | None:
+    return round(value, 3) if value is not None else None
+
+
+def _resolution_calibration(report: RunReport) -> dict[str, Any]:
+    """What this host could resolve during this run.
+
+    `MIN_JITTER_RATIO` cannot be chosen from one laptop. The quantity it guards
+    — readiness p50 over probe-path jitter — is a property of the machine, and
+    the spread only becomes visible once the same block exists for a Linux
+    server, a macOS laptop and a CI runner. So it is written on every run rather
+    than being derived once from a measurement campaign: the campaign is every
+    run anyone has already made.
+
+    It is recorded on both in-flight paths, not only the fallback. A run that
+    points `--inflight-path` at a slower endpoint still measures the readiness
+    baseline, and its ratio is the same evidence about the same host — the
+    recommended workaround must not silently stop contributing data.
+
+    `ratio` is therefore what the fallback path *would* have had to work with,
+    not a verdict; a configured run reaching it is not a warning. The verdict
+    lives in SP005's precondition, which reads the same numbers.
+
+    The teardown floor is the other half of the same question and is already
+    recorded per run in `teardown_calibration`.
+    """
+    readiness = report.readiness_baseline
+    p50 = readiness.p50_ms if readiness is not None else None
+    jitter = report.measurement_jitter_ms
+    return {
+        "host_id": report.host_id,
+        # Here rather than in `environment`: this is a fact about the run. A
+        # jitter figure measured under load is a different figure, and without
+        # the load beside it the two are indistinguishable after the fact.
+        "load_average": list(report.load_average) if report.load_average else None,
+        "measurement_jitter_ms": _round(jitter),
+        "measurement_jitter_source": report.probe_location,
+        "measurement_jitter_samples": len(report.ping_latencies_ns),
+        "readiness_p50_ms": _round(p50),
+        "readiness_max_ms": _round(readiness.max_ms) if readiness is not None else None,
+        "readiness_samples": len(readiness.samples) if readiness is not None else 0,
+        "ratio": _round(p50 / jitter) if p50 is not None and jitter else None,
+        "minimum_ratio": MIN_JITTER_RATIO,
+        "inflight_target": report.inflight_target,
     }
 
 
@@ -171,6 +220,7 @@ def _run_summary(run: RunOutcome, redactor: Redactor) -> dict[str, Any]:
             phase: round(duration, 3)
             for phase, duration in report.phase_durations_ms.items()
         },
+        "resolution_calibration": _resolution_calibration(report),
         "container_start_overhead_ms": report.container_start_overhead_ms,
         "startup_resolution_ms": report.startup_resolution_ms,
         "startup_duration_ms": report.startup_duration_ms,

@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JSON/JUnit reporting, and fixture branch-coverage enforcement.
 - Run-scoped sidecar traffic measurement with explicit host fallback evidence.
 - Per-run and aggregate `phase_durations_ms` timing evidence.
+- Per-run `resolution_calibration` in the JSON report: host identifier, load
+  average, probe-path jitter with the location it was measured at, readiness
+  p50, and the ratio between them. What preflightkit can resolve is a property
+  of the host, so choosing a threshold takes readings from several.
 - `--version` output containing both package version and source commit.
 - Phase-by-phase progress on stderr, numbered per run under `--repeat`.
 
@@ -24,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drain strategy that can reach it; the branch catalogue is now enforced against
   the contracts by test.
 - Readiness is used as the SP005 fallback target when no in-flight path is set.
+- An `in_app` drain window the accept probe cannot resolve is now a
+  configuration error (exit code 2) from both `validate` and `test`, reported
+  before any container starts. It was previously a contract verdict, which meant
+  waiting out a full run to be told the configuration was unmeasurable.
 
 ### Fixed
 

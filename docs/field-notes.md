@@ -1593,4 +1593,109 @@ What argues against acting yet: all of this is one machine. The claim that the
 default lands on the boundary needs the same measurement on Linux and on CI
 before a constant is chosen, because the jitter floor is exactly the term that
 varies by host, and picking a number from one laptop's floor would repeat the
-mistake this note is about. Not changed.
+mistake this note is about. Not changed. The readings the choice needs are now
+kept on every run — see "What is now recorded on every run" below.
+
+## Watch list and measurement record (2026-08-26; preflightkit commit: 394996b0bd0afb74d7021b3d51db92a3302293ff)
+
+### Watch item: SP001 `within_resolution` is the same one-way knob
+
+The classification split does not cover this row, and it should not be made to.
+`within_resolution` is `live_image` and correctly so: readiness time is a real
+property of the target, and no arithmetic over already-measured numbers can
+stand in for the image becoming ready. What it shares with
+`readiness-fallback-fast` is not the type — it is the shape of the fixture that
+has to reach it.
+
+The branch is entered when
+
+    budget < startup_duration_ms <= budget + startup_resolution_ms
+
+and `startup_resolution_ms` is `container_start_overhead_ms` plus one 100ms
+readiness poll. That makes the admissible window exactly as wide as the
+resolution, wherever the budget is put. Moving `contracts.startup.budget` slides
+the window; it cannot widen it, because the width is a property of the host's
+Docker daemon and this harness's poll interval, not of anything the fixture
+declares. The only lever that widens the margin is a faster image, and the row
+already runs on `pfk-fixture-stdlib`, the smallest server fixture in the
+repository. The knob is turned as far as it goes.
+
+Three runs today, `Darwin 25.5.0 / docker 29.7.2 / 11cpu`, host load average
+43.5-49.6:
+
+| Run | `startup_duration_ms` | `startup_resolution_ms` | Overrun | Overrun / resolution |
+|---|---:|---:|---:|---:|
+| 1 | 160.93 | 215.29 | 60.93 | 28.3% |
+| 2 | 172.43 | 213.61 | 72.43 | 33.9% |
+| 3 | 170.33 | 213.01 | 70.33 | 33.0% |
+
+Both margins are comfortable here: 61-72ms above the 100ms budget on the low
+side, and 141-154ms of unused resolution on the high side. That is the state of
+one host under heavy load, not a guarantee.
+
+The row's history is the reason it is on a watch list rather than left alone.
+The budget has been 15s, then 200ms, then 1ms, then 100ms, and the image was
+swapped from `pfk-fixture-good` to `pfk-fixture-stdlib` in `68c24bd`. Four
+adjustments to one row, each one correct in isolation, each one a response to a
+failure on a machine that was not the previous machine.
+
+**Prediction.** This branch fails again on a host whose timing differs from this
+laptop's, in one of two directions:
+
+- On a fast host — native Linux, low daemon create/start overhead, quick
+  interpreter start — `startup_duration_ms` falls to or below the 100ms budget.
+  The verdict stays PASS but the branch becomes `within_budget`, and
+  `fixtures/matrix.yaml` fails on the branch rather than the status. This is the
+  more likely direction: the fixture is deliberately the fastest image here, and
+  the budget is the only thing keeping it above the line.
+- On a loaded runner where interpreter startup inflates more than the daemon's
+  create/start round trip does, the overrun outgrows the resolution and the
+  branch becomes `over_budget` (WARN). Today's overrun uses a third of the
+  available resolution, so this needs roughly a threefold divergence between the
+  two costs, not merely a slow machine.
+
+**What a recurrence means.** Not another adjustment. `within_resolution` is a
+verdict about the target whose *boundary* is a host measurement, which is
+neither of the two types the catalog declares: it is not `decision_unit`,
+because the image is genuinely an input, and it is not adequately served by
+`live_image`, because which of two real branches a real image lands on is
+decided by the machine underneath it. Two rows now show this shape. A third
+would make it a category, and the answer would be to name the third type and
+give it its own rule — not to move the budget a fifth time.
+
+### What is now recorded on every run
+
+The open question above cannot be closed from this laptop, and the data that
+would close it was being measured and discarded on every run. It is now kept.
+Each run in the JSON report carries a `resolution_calibration` block next to its
+`phase_durations_ms`:
+
+- `host_id` — OS and release, Docker server version, CPU count. The grouping
+  key. Load average is deliberately not in it, because it describes the run
+  rather than the machine, and is recorded beside the numbers it explains.
+- `measurement_jitter_ms`, with `measurement_jitter_source` and the sample
+  count. The source matters: sidecar jitter times TCP round trips to the target
+  and host-fallback jitter times the Docker daemon, so pooling the two would
+  read a change of instrument as a change of host.
+- `readiness_p50_ms`, `readiness_max_ms`, `readiness_samples`.
+- `ratio` — readiness p50 over jitter — and `minimum_ratio`, the value of
+  `MIN_JITTER_RATIO` in force when the row was written.
+- `inflight_target`, because the block is written on both paths. A run that
+  takes SP005's own advice and points `--inflight-path` at a slower endpoint
+  still measures the readiness baseline, and its ratio is the same evidence
+  about the same host. Recording it only on the fallback path would have left
+  the question open on exactly the hosts best placed to close it.
+
+The teardown floor is the other half and was already per-run in
+`teardown_calibration`: samples, median, sample stddev, and the threshold.
+
+The three runs in the table above landed on both sides of the constant, on one
+machine, minutes apart: ratios 4.91, 16.34 and 4.20 against a required 10. The
+readiness p50 barely moved across them (4.75-6.18ms); the jitter floor moved
+3.4-fold (0.37-1.26ms). The unstable term is the one that belongs to the host.
+
+There is already one measured cross-host figure of the same kind in this file:
+the teardown floor was 237-250ms on `Linux 6.8.0-134-generic` and 50.73ms on
+this macOS host, roughly fivefold. A constant chosen from either one alone would
+be calibrated to that one. `MIN_JITTER_RATIO` is unchanged and stays unchanged
+until the same block exists for a Linux server, a macOS laptop and a CI runner.

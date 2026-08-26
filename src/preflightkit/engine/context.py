@@ -137,6 +137,24 @@ class RunReport:
         return statistics.median(self.ping_latencies_ns) / 1_000_000
 
     @property
+    def host_id(self) -> str:
+        """A name for the machine, stable enough to group measurements by.
+
+        What preflightkit can resolve is a property of the host, not of the
+        image: the same target measured on a Linux server, a macOS laptop and a
+        CI runner produces three different jitter floors and three different
+        teardown spreads. Thresholds chosen from one of them are calibrated to
+        that one. This is the key those measurements are filed under.
+
+        Load average is deliberately not part of it. It moves between runs on
+        one machine, so it describes the measurement rather than the machine —
+        it is recorded next to the numbers it explains instead.
+        """
+        docker = self.docker_server.get("version") or "unknown"
+        cpus = self.cpu_count if self.cpu_count is not None else "unknown"
+        return f"{self.host_os or 'unknown'} / docker {docker} / {cpus}cpu"
+
+    @property
     def sigkill_effective(self) -> bool:
         """Whether SIGKILL is what actually ended the process.
 

@@ -1401,3 +1401,132 @@ are now announced on stderr as they begin, with stdout left machine-clean, and
 
 Calibration announces itself only when it will actually run, so the line never
 names a phase that short-circuits.
+
+---
+
+## SP005 in-flight window audit (2026-08-26; preflightkit commit: 7d1cc89d11b1e2c9344989162d6334758718cdd5)
+
+Triggered by a single `nothing_in_flight` ERROR on `go-runtime-exit-2` during a
+full-suite run (258 tests, 335s). The row expects FAIL / `requests_destroyed`,
+which is reached by counting; an empty window turns it into an ERROR that reads
+as a defect in the image rather than in the fixture.
+
+### Not reproducible under CPU load
+
+16 `yes` processes on an 11-core box, four consecutive runs of the fixture as it
+then stood (1s handler, `sigterm_after: 100ms`):
+
+| run | verdict | in flight | jitter | window/jitter |
+|-----|---------|-----------|--------|---------------|
+| 1 | FAIL requests_destroyed | 10/10 | 0.312ms | 320x |
+| 2 | FAIL requests_destroyed | 10/10 | 0.235ms | 426x |
+| 3 | FAIL requests_destroyed | 10/10 | 1.774ms | 56x |
+| 4 | FAIL requests_destroyed | 10/10 | 0.239ms | 418x |
+
+CPU starvation does not empty the window. On the tool's own published rule —
+`sigterm_after / measurement_jitter >= MIN_JITTER_RATIO` (10) — this fixture was
+never near the boundary; it measured 56-426x.
+
+### The whole matrix, by window
+
+Of 28 rows carrying an SP005 expectation, 5 reach a counted branch
+(`all_completed`, `requests_destroyed`). The rest are decided by a precondition
+before anything is counted, so no window can change them.
+
+| row | signal aimed at | source | in flight | window/jitter |
+|-----|-----------------|--------|-----------|---------------|
+| readiness-fallback-slow | 102ms | readiness_fallback | 10/10 | 383x |
+| good-fastapi-prestop | 2515ms | baseline | 10/10 | 2067x |
+| startup-over-budget | 2533ms | baseline | 10/10 | 9953x |
+| kills-inflight | 2000ms | config | 10/10 | 8077x |
+| go-runtime-exit-2 | 100ms | config | 10/10 | 417x |
+
+Every row populates its window completely, and every row clears the tool's rule
+by two to three orders of magnitude.
+
+### Why `expected_duration / sigterm_after` is not the rule to gate on
+
+That ratio is not what preflightkit measures against anything. Gating the matrix
+on it at 10x would fail `kills-inflight` (5000/2000 = 2.5x, 10/10 in flight,
+never observed to flake) and cannot be evaluated at all for the three rows that
+leave `sigterm_after` unset — those get half the measured p50, so the ratio is
+2x *by construction of the tool's own default*. A 10x gate would condemn the
+default derivation.
+
+### What the evidence does point at
+
+T0 is an absolute wall-clock deadline, set before the sidecar is told to start:
+
+    lead_ms = report.sigterm_after_ms
+    t0_unix_ns = time.time_ns() + (lead_ms + 300) * 1_000_000
+
+The sidecar therefore has `lead_ms + 300ms` to receive the POST and connect
+every request, and that allowance does not stretch under load. `_was_in_flight`
+keys on `connected_ns`, so a late connect — not an early finish — empties the
+window. The two rows with a small lead are `go-runtime-exit-2` (100ms) and
+`readiness-fallback-slow` (102ms); every other row has 2000ms or more. The row
+that flaked is one of the two.
+
+Consequence worth stating plainly: **lengthening the handler does not address
+this mechanism.** The window survives T0 either way; what is scarce is the
+setup allowance before it. The handler was widened anyway (1s to 5s, surviving
+window 900ms to 4900ms) because it costs 4s of suite time and removes the other
+way the window can empty, but the 300ms constant is where the remaining risk
+lives. Making that allowance proportional to the lead rather than fixed is the
+change that would close it; not implemented, not measured.
+
+### A second row, much closer to the boundary
+
+The Docker matrix run that verified the above failed a different row:
+`readiness-fallback-fast` expected INCONCLUSIVE / `readiness_fallback_below_resolution`
+and returned PASS / `all_completed`. Six consecutive runs:
+
+| run | verdict | readiness p50 | jitter | ratio |
+|-----|---------|---------------|--------|-------|
+| 1 | INCONCLUSIVE | 5.33ms | 1.185ms | 4.50x |
+| 2 | PASS | 3.62ms | 0.237ms | 15.28x |
+| 3 | INCONCLUSIVE | 2.64ms | 1.163ms | 2.27x |
+| 4 | PASS | 3.59ms | 0.234ms | 15.34x |
+| 5 | INCONCLUSIVE | 2.54ms | 1.336ms | 1.90x |
+| 6 | INCONCLUSIVE | 4.95ms | 1.662ms | 2.98x |
+
+Two of six flip the verdict: a ~33% flake rate, an order of magnitude worse
+than the row that started this audit. The measured ratio straddles the 10x rule
+from 1.9x to 15.3x.
+
+p50 is stable at 2.5-5.3ms; the swing is entirely in the jitter, which is
+bimodal at roughly 0.235ms or 1.2-1.7ms. When the quiet mode wins, a 3.6ms
+readiness endpoint clears 10x and the fallback becomes resolvable — so the row
+that exists to demonstrate *unresolvable* fallback demonstrates the opposite.
+
+This row cannot be fixed by widening a margin, because it is the one row whose
+expectation requires sitting *below* the rule, and it has no lever left.
+
+Both fallback rows drive the same knob, `READINESS_DELAY_SECONDS` on the shared
+`pfk-fixture-good` image. `readiness-fallback-slow` sets it to 0.2, which puts
+p50 at ~200ms against at most 1.7ms of jitter — about 118x, and it can be moved
+further out at will. `readiness-fallback-fast` sets it to nothing, so p50 is the
+container's own floor. The knob only turns one way, and that way is toward the
+threshold, not away from it.
+
+The margin it would need is not available: against the observed 0.234ms jitter
+floor, holding the ratio under 10x requires a p50 under 2.34ms, and the fastest
+p50 measured across six runs was 2.54ms. It misses by roughly 200us of Docker
+port-forward round trip, and no fixture setting buys that back. The other term,
+jitter, is measurement noise — not a fixture input at all.
+
+So the asymmetry is structural. The slow row proves its branch by moving away
+from the rule; the fast row can only prove its branch by sitting on it. Two ways
+out, neither implemented, because both change something deliberate:
+
+- pin the inputs, so the branch is proven against fixed p50 and jitter rather
+  than against whatever the runner produces;
+- let `tests/test_coverage.py` accept a unit test as proof for this one branch.
+  `tests/test_preconditions.py::test_readiness_fallback_below_jitter_resolution_is_inconclusive`
+  already proves it with p50 8.0ms and jitter 1.8ms, deterministically, in the
+  fast suite. The live row adds no coverage over it — only the die roll.
+
+The second is the smaller change but touches the repo's central guarantee, that
+every declared branch is reached by a real image. That guarantee exists because
+SP006 once declared a FAIL no code could reach and CI stayed green. Weakening it
+to settle one flaky row deserves a decision, not a patch.

@@ -165,6 +165,56 @@ def test_an_empty_directory_says_so(tmp_path: Path, capsys) -> None:
     assert _summariser().main(["summarise_runs.py", str(tmp_path)]) == 1
 
 
+def test_the_checkout_path_is_not_printed_into_a_committed_summary(
+    tmp_path: Path, capsys
+) -> None:
+    """These summaries are committed; a checkout path is not a measurement.
+
+    `measure-runs.sh` records the command as it actually ran, absolute path and
+    all, because the run has to be reproducible. On a laptop that path carries a
+    username and whatever the directory was called locally, and on CI it carries
+    the runner's layout. The batch file keeps it; the summary does not.
+    """
+    _batch(tmp_path, _document())
+    (tmp_path / "batch.txt").write_text(
+        "command: uv run --project /Users/someone/projects/internal-name "
+        "preflightkit test --config "
+        "/Users/someone/projects/internal-name/fixtures/a.yaml\n"
+        "label: fallback\n"
+        "uname: Darwin someones-laptop.local 25.5.0\n"
+    )
+
+    assert _summariser().main(["summarise_runs.py", str(tmp_path)]) == 0
+
+    out = capsys.readouterr().out
+    assert "/Users/someone" not in out
+    assert "internal-name" not in out
+    assert "--project . " in out
+    assert "--config fixtures/a.yaml" in out
+    # `uname` carries the machine's own name and was never printed. Asserted so
+    # that widening the printed keys has to come past this.
+    assert "someones-laptop" not in out
+    assert "label:" in out
+
+
+def test_a_batch_recorded_without_project_is_left_alone(tmp_path: Path, capsys) -> None:
+    """No `--project` means nothing identified the checkout.
+
+    Guessing at absolute paths without one would eat real arguments — a config
+    path, a mounted volume — and silently change what the summary says was run.
+    """
+    _batch(tmp_path, _document())
+    (tmp_path / "batch.txt").write_text(
+        "command: preflightkit test --format json example:latest --port 8000\n"
+        "label: fast\n"
+    )
+
+    assert _summariser().main(["summarise_runs.py", str(tmp_path)]) == 0
+
+    out = capsys.readouterr().out
+    assert "preflightkit test --format json example:latest --port 8000" in out
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell harness")
 @pytest.mark.parametrize(
     ("argv", "expected"),

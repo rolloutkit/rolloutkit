@@ -86,6 +86,36 @@ def _median(values: list[float | None]) -> float | None:
     return statistics.median(present) if present else None
 
 
+def _relative(command: str) -> str:
+    """The recorded command line with the checkout's absolute path taken out.
+
+    `measure-runs.sh` records the command as it ran, which means an absolute
+    path: `/Users/someone/projects/thing` on a laptop, `/home/runner/work/...`
+    on CI. That is the right thing to record — the run has to be reproducible —
+    but these summaries are committed, and a checkout path carries a username
+    and whatever the directory happened to be called locally. Neither is a
+    measurement.
+
+    The path is found rather than pattern-matched: `--project` names the
+    checkout, so whatever follows it is the prefix to remove, and every other
+    occurrence of that same prefix on the line goes with it. A batch recorded
+    without `--project` is returned unchanged, because then there is nothing
+    identified to remove and guessing at absolute paths would eat real
+    arguments.
+    """
+    parts = command.split()
+    if "--project" not in parts:
+        return command
+    index = parts.index("--project")
+    if index + 1 >= len(parts):
+        return command
+    root = parts[index + 1].rstrip("/")
+    if not root.startswith("/"):
+        return command
+    parts[index + 1] = "."
+    return " ".join(part.replace(root + "/", "").replace(root, ".") for part in parts)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: summarise_runs.py DIRECTORY", file=sys.stderr)
@@ -128,7 +158,7 @@ def main(argv: list[str]) -> int:
         for line in batch.read_text().splitlines():
             if line.startswith(("command:", "label:")):
                 key, value = line.split(":", 1)
-                print(f"{key + ':':<9}{value.strip()}")
+                print(f"{key + ':':<9}{_relative(value.strip())}")
 
     phases: list[str] = []
     for document in measured:

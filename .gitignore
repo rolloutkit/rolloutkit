@@ -8,4 +8,6 @@ build/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
-measurements/
+# The raw JSON corpus at the repository root. The committed per-batch
+# summaries live in docs/measurements/ and are not covered by this.
+/measurements/

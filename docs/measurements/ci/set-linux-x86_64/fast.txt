@@ -1,0 +1,49 @@
+host:   Linux 6.17.0-1022-azure / docker 28.0.4 / 2cpu
+image:  pfk-fixture-wrapper
+tool:   0.1.0.dev0 (648891e)
+runs:   8 attempted, 8 with a report
+command: uv run --project . preflightkit test --format json --config fixtures/stdlib-http/default-disposition.yaml
+label:   fast
+
+duration
+  wall is the whole process; tool is what the run itself timed; phases in ms
+  run  exit  wall s  tool s  probe_image_preparation  dependencies  target_start  baseline  calibration  experiment  teardown
+  ---  ----  ------  ------  -----------------------  ------------  ------------  --------  -----------  ----------  --------
+    1     0    4.29    3.07                     1775             0           436        14          171         473       183
+    2     0    3.27    2.86                     1633             0           428        14          155         445       179
+    3     0    3.29    2.89                     1626             0           435        14          150         481       181
+    4     0    3.26    2.86                     1644             0           428        14          142         436       191
+    5     0    3.35    2.95                     1676             0           445        15          157         470       178
+    6     0    3.34    2.94                     1665             0           421        14          163         475       195
+    7     0    3.28    2.88                     1614             0           420        14          165         473       189
+    8     0    3.35    2.96                     1689             0           423        14          167         477       183
+  med          3.31    2.92                     1654             0           428        14          160         473       183
+
+resolution
+  ok is ratio >= 10 (MIN_JITTER_RATIO as this build has it)
+  run  jitter   source  n   p50   max  ratio  ok    target  load1
+  ---  ------  -------  -  ----  ----  -----  --  --------  -----
+    1   0.540  sidecar  5  1.11  1.54   2.06  no  disabled   1.95
+    2   0.619  sidecar  5  1.08  1.38   1.74  no  disabled   1.79
+    3   0.492  sidecar  5  1.07  1.45   2.17  no  disabled   1.65
+    4   0.548  sidecar  5  1.15  1.42   2.09  no  disabled   1.65
+    5   0.568  sidecar  5  1.11  1.36   1.96  no  disabled   1.68
+    6   0.565  sidecar  5  1.08  1.50   1.92  no  disabled   1.71
+    7   0.541  sidecar  5  1.12  1.32   2.08  no  disabled   1.71
+    8   0.609  sidecar  5  1.07  1.44   1.75  no  disabled   1.57
+  med   0.556              1.10         2.01                     
+
+teardown floor
+  the other half of the same question: what this daemon costs to stop, in ms. A run only calibrates when a budget is close enough to need it, so not_calibrated is a normal row, not a missing measurement
+  run  n  floor  stddev  k  threshold          status
+  ---  -  -----  ------  -  ---------  --------------
+    1  -      -       -  -          -  not_calibrated
+    2  -      -       -  -          -  not_calibrated
+    3  -      -       -  -          -  not_calibrated
+    4  -      -       -  -          -  not_calibrated
+    5  -      -       -  -          -  not_calibrated
+    6  -      -       -  -          -  not_calibrated
+    7  -      -       -  -          -  not_calibrated
+    8  -      -       -  -          -  not_calibrated
+  med         -                                      
+

@@ -1,0 +1,49 @@
+host:   Darwin 25.5.0 / docker 29.7.2 / 11cpu
+image:  pfk-fixture-good
+tool:   0.1.0.dev0 (74982e8)
+runs:   8 attempted, 8 with a report
+command: uv run --project . preflightkit test --format json pfk-fixture-good --port 8000 --ready-url /ready
+label:   loaded
+
+duration
+  wall is the whole process; tool is what the run itself timed; phases in ms
+  run  exit  wall s  tool s  probe_image_preparation  dependencies  target_start  baseline  calibration  experiment  teardown
+  ---  ----  ------  ------  -----------------------  ------------  ------------  --------  -----------  ----------  --------
+    1     0    3.72    3.31                     1089             0           476       345          563         576       251
+    2     0    3.82    3.49                     1162             0           478       186          763         612       279
+    3     0    3.34    3.01                     1215             0           444       279          182         641       240
+    4     0    3.21    2.89                     1094             0           463       228          194         647       259
+    5     0    3.24    2.90                     1123             0           520       215          235         584       217
+    6     0    3.87    3.53                     1173             0           508       230          791         573       251
+    7     0    3.79    3.48                     1131             0           532       260          692         588       266
+    8     0    3.60    3.28                     1127             0           400       239          610         566       337
+  med          3.66    3.29                     1129             0           477       234          587         586       255
+
+resolution
+  ok is ratio >= 10 (MIN_JITTER_RATIO as this build has it)
+  run  jitter   source  n   p50    max  ratio   ok              target  load1
+  ---  ------  -------  -  ----  -----  -----  ---  ------------------  -----
+    1   0.363  sidecar  5  6.87  13.24  18.91  yes  readiness_fallback   5.32
+    2   1.915  sidecar  5  3.13   6.83   1.64   no  readiness_fallback   5.32
+    3   0.270  sidecar  5  3.53  10.22  13.09  yes  readiness_fallback   6.98
+    4   0.252  sidecar  5  4.76  11.27  18.88  yes  readiness_fallback   8.10
+    5   0.254  sidecar  5  2.34   5.79   9.21   no  readiness_fallback   8.10
+    6   1.136  sidecar  5  3.89  11.15   3.42   no  readiness_fallback   9.85
+    7   0.620  sidecar  5  3.32  13.56   5.35   no  readiness_fallback  12.67
+    8   0.450  sidecar  5  4.62   6.40  10.28  yes  readiness_fallback  13.66
+  med   0.406              3.71          9.74                                
+
+teardown floor
+  the other half of the same question: what this daemon costs to stop, in ms. A run only calibrates when a budget is close enough to need it, so not_calibrated is a normal row, not a missing measurement
+  run  n  floor  stddev  k  threshold          status
+  ---  -  -----  ------  -  ---------  --------------
+    1  -      -       -  -          -  not_calibrated
+    2  -      -       -  -          -  not_calibrated
+    3  -      -       -  -          -  not_calibrated
+    4  -      -       -  -          -  not_calibrated
+    5  -      -       -  -          -  not_calibrated
+    6  -      -       -  -          -  not_calibrated
+    7  -      -       -  -          -  not_calibrated
+    8  -      -       -  -          -  not_calibrated
+  med         -                                      
+

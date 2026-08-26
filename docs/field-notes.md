@@ -1928,12 +1928,21 @@ runs that did calibrate.
 
 ## Three hosts, pipeline cost, and the fallback decision (2026-08-26; preflightkit commit: 74982e8ca26689947f3142a8bafa53fc91d1c842)
 
-Ten batches of eight runs on each of three conditions, plus a sixteen-batch
-loaded state, taken with `scripts/measure-set.sh` so that every condition ran
-the same set in the same order. 448 documents. The question the previous note
-left open was whether the jitter floor differs enough between Linux, macOS and
-CI to move the fallback threshold. It does: by 3.4x, and it moves the verdict on
-three of ten configurations.
+Eight runs of each batch on each of three conditions, taken with
+`scripts/measure-set.sh` so that every condition ran the same set in the same
+order: ten batches on macOS warm, ten on Linux CI, and six on macOS loaded,
+where only `fallback` and the five-point sweep were repeated under load. 26
+batches, **208 documents**, and because `repeat3` writes three runs into one
+document, **240 runs**, 160 of which took the readiness fallback.
+
+The per-batch tables are in `docs/measurements/`, one file per batch with the
+host, the count, the median and the range; the index there lists every batch in
+one table, these 26 together with the four later row-fixture batches taken after
+the window floor landed. The raw JSON is not committed.
+
+The question the previous note left open was whether the jitter floor differs
+enough between Linux, macOS and CI to move the fallback threshold. It does: by
+3.4x, and it moves the verdict on three of ten configurations.
 
 ### What these three are, and what is still missing
 
@@ -2195,7 +2204,7 @@ placed below the band, and reaching it was not worth making the guard the rule.
 `MIN_READINESS_WINDOW_MS = 3.0` in `src/preflightkit/contracts/inflight.py`,
 where the ratio and the floor are one function that all three call sites share.
 
-Replayed against all 448 documents, the guard moves **14 of 160** fallback runs,
+Replayed against all 208 documents, the guard moves **14 of 160** fallback runs,
 every one of them resolve to refuse and none the other way — 8 of 8 on macOS
 `sweep-1ms` and 6 of 8 on macOS `sweep-2ms`. Nothing else in the campaign is
 touched.
@@ -2225,7 +2234,7 @@ INCONCLUSIVE branch can be defended from within a single run. Nine runs cannot.
 
 Adopted. `resolution_calibration` now carries `readiness_latencies_ms` and
 `measurement_jitter_latencies_ms` — every sample, not a summary. The jitter
-samples matter more than the readiness ones: across these 448 runs the ratio's
+samples matter more than the readiness ones: across these 240 runs the ratio's
 volatility was almost entirely in its denominator, 0.14 against 0.01 on the
 200ms fixture, so recording only the numerator would have widened the block
 without making the question answerable. No decision reads them yet; they exist
@@ -2251,7 +2260,7 @@ where it lands.
 
 ### Teardown calibration did not run once, and why
 
-`teardown_calibration` was null in **all 448 runs on all three conditions**.
+`teardown_calibration` was null in **all 240 runs on all three conditions**.
 Not sparse, not noisy — absent. Anyone reading this file later should not go
 looking for cross-host teardown-floor numbers in these batches, because there
 are none, and the `teardown` *phase* durations in the cost table above are not
@@ -2267,7 +2276,7 @@ questioned here. What it means in practice is that the gate is closed for every
 configuration in this set — the four hand-written batches derive budgets of
 25000, 30000, 30000 and 25000ms, and the five generated sweep configs are all
 30000ms. Not one of the ten comes within an order of magnitude of the cutoff, so
-the gate was never once open across 448 runs.
+the gate was never once open across 240 runs.
 
 The set is at fault here, not the tool. Three fixtures in `fixtures/matrix.yaml`
 *do* qualify — `stdlib-http/django-shipped.yaml` at 1000ms, and
@@ -2312,7 +2321,9 @@ measured the wrong branch.
 `fixtures/matrix.yaml` rather than a hand-written copy, so a host can reach the
 starting line without the five-minute Docker matrix.
 `.github/workflows/measure.yml` is `workflow_dispatch` only and uploads
-`measurements/` as an artifact. `scripts/analyse_resolution.py` is standard
+`measurements/` as an artifact; the raw documents stay out of the repository,
+and the per-batch summaries drawn from them are committed under
+`docs/measurements/`. `scripts/analyse_resolution.py` is standard
 library only and repeats `CURRENT_RATIO = 10.0` deliberately rather than
 importing it, so that re-running the analysis after a threshold change does not
 silently re-score old batches under the new one.
@@ -2378,7 +2389,8 @@ Chance two runs of one configuration answer differently:
 One batch out of twenty improves.
 
 Asked as a count rather than as a rate, over every fallback run in the corpus —
-160 of them, across both hosts and both load conditions. Each recorded run is
+160 of them, across both hosts and both load conditions, the batches listed in
+`docs/measurements/README.md`. Each recorded run is
 re-drawn through the estimator's own sampling distribution at each n, and the
 draw is compared against the answer that run actually gave:
 

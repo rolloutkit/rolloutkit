@@ -1,0 +1,49 @@
+host:   Darwin 25.5.0 / docker 29.7.2 / 11cpu
+image:  pfk-fixture-good
+tool:   0.1.0.dev0 (648891e)
+runs:   8 attempted, 8 with a report
+command: uv run --project . preflightkit test --format json --config fixtures/good-fastapi-prestop/preflightkit.yaml
+label:   full
+
+duration
+  wall is the whole process; tool is what the run itself timed; phases in ms
+  run  exit  wall s  tool s  probe_image_preparation  dependencies  target_start  baseline  calibration  experiment  teardown
+  ---  ----  ------  ------  -----------------------  ------------  ------------  --------  -----------  ----------  --------
+    1     0   22.32   22.06                      867             0           286     15140           83        5455       227
+    2     0   22.39   22.05                      802             0           301     15108           86        5542       206
+    3     0   22.45   22.12                      876             0           292     15099           85        5557       206
+    4     0   22.40   22.05                      862             0           289     15103           82        5496       215
+    5     0   22.44   22.08                      857             0           293     15098           87        5514       222
+    6     0   22.37   22.09                      868             0           302     15106           87        5507       216
+    7     0   22.35   22.01                      819             0           290     15116           85        5485       207
+    8     0   22.62   22.30                      944             0           358     15150           97        5522       227
+  med         22.39   22.07                      864             0           293     15107           86        5511       215
+
+resolution
+  ok is ratio >= 10 (MIN_JITTER_RATIO as this build has it)
+  run  jitter   source  n   p50   max  ratio  ok      target  load1
+  ---  ------  -------  -  ----  ----  -----  --  ----------  -----
+    1   0.147  sidecar  5  0.37  0.90   2.52  no  configured   2.51
+    2   0.157  sidecar  5  0.37  0.91   2.37  no  configured   2.13
+    3   0.139  sidecar  5  0.36  0.95   2.62  no  configured   1.87
+    4   0.159  sidecar  5  0.34  1.19   2.15  no  configured   3.78
+    5   0.148  sidecar  5  0.34  1.26   2.28  no  configured   2.83
+    6   0.133  sidecar  5  0.35  0.92   2.59  no  configured   2.28
+    7   0.143  sidecar  5  0.31  0.81   2.19  no  configured   2.27
+    8   0.149  sidecar  5  0.40  0.96   2.69  no  configured   2.45
+  med   0.147              0.36         2.45                       
+
+teardown floor
+  the other half of the same question: what this daemon costs to stop, in ms. A run only calibrates when a budget is close enough to need it, so not_calibrated is a normal row, not a missing measurement
+  run  n  floor  stddev  k  threshold          status
+  ---  -  -----  ------  -  ---------  --------------
+    1  -      -       -  -          -  not_calibrated
+    2  -      -       -  -          -  not_calibrated
+    3  -      -       -  -          -  not_calibrated
+    4  -      -       -  -          -  not_calibrated
+    5  -      -       -  -          -  not_calibrated
+    6  -      -       -  -          -  not_calibrated
+    7  -      -       -  -          -  not_calibrated
+    8  -      -       -  -          -  not_calibrated
+  med         -                                      
+

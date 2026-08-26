@@ -8,7 +8,6 @@ from typing import Any
 from preflightkit.config.models import DrainStrategy
 from preflightkit.contracts.base import (
     DIRECT_CONNECTION_PATH,
-    IN_APP_WINDOW_RESOLVABLE,
     SHUTDOWN_BUDGET_RESOLVABLE,
     SHUTDOWN_STARTED,
     ContractResult,
@@ -27,14 +26,12 @@ class DrainWindowContract:
         SHUTDOWN_STARTED,
         DIRECT_CONNECTION_PATH,
         SHUTDOWN_BUDGET_RESOLVABLE,
-        IN_APP_WINDOW_RESOLVABLE,
     )
 
     BRANCHES = {
         "shutdown_never_started": Status.INCONCLUSIVE,
         "port_proxy_likely": Status.INCONCLUSIVE,
         "budget_below_teardown_floor": Status.INCONCLUSIVE,
-        "in_app_window_below_probe_resolution": Status.INCONCLUSIVE,
         "accept_then_reset": Status.FAIL,
         "in_app_listener_closed_early": Status.FAIL,
         "in_app_readiness_not_signaled": Status.WARN,

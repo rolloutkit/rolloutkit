@@ -86,9 +86,6 @@ SHUTDOWN_BUDGET_RESOLVABLE = Precondition(
 DIRECT_CONNECTION_PATH = Precondition(
     "direct_connection_path", "port_proxy_likely"
 )
-IN_APP_WINDOW_RESOLVABLE = Precondition(
-    "in_app_window_resolvable", "in_app_window_below_probe_resolution"
-)
 
 
 class Contract(Protocol):

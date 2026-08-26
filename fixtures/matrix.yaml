@@ -423,19 +423,6 @@ fixtures:
       SP005: {status: SKIP, branch: disabled}
       SP006: {status: WARN, branch: thin_margin}
 
-  - name: in-app-window-below-probe-resolution
-    image: pfk-fixture-drain-window
-    config: drain-window/window-below-resolution.yaml
-    description: >
-      A 1000ms window is not greater than twenty 50ms probe intervals, so SP004
-      does not claim a listener verdict over insufficient resolution.
-    expect:
-      SP001: {status: PASS, branch: within_budget}
-      SP003: {status: PASS, branch: shutdown_observed}
-      SP004: {status: INCONCLUSIVE, branch: in_app_window_below_probe_resolution}
-      SP005: {status: SKIP, branch: disabled}
-      SP006: {status: PASS, branch: within_budget}
-
   - name: shutdown-budget-below-host-resolution
     image: pfk-fixture-drain-window
     config: drain-window/budget-below-resolution.yaml

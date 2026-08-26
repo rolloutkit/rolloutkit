@@ -329,13 +329,6 @@ CATALOG: dict[str, ContractDoc] = {
                 ("in_app",),
             ),
             Verdict(
-                "in_app_window_below_probe_resolution",
-                "INCONCLUSIVE",
-                "in_app_window is not larger than 20 probe intervals, so the "
-                "window cannot be distinguished from the probe's own resolution.",
-                ("in_app",),
-            ),
-            Verdict(
                 "budget_below_teardown_floor",
                 "INCONCLUSIVE",
                 "The shutdown budget is inside the measured teardown envelope, so "

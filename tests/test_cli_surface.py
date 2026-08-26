@@ -132,6 +132,80 @@ def test_validate_bad_config_is_exit_2_and_never_needs_docker(tmp_path: Path) ->
     assert "target.port" in result.output
 
 
+def _in_app_config(window: str) -> str:
+    return (
+        "version: 1\n"
+        "target: {image: fixture, port: 8000}\n"
+        "deployment:\n"
+        "  termination_grace_period: 30s\n"
+        f"  drain: {{strategy: in_app, in_app_window: {window}}}\n"
+    )
+
+
+@pytest.mark.parametrize("window", ["1s", "500ms", "50ms"])
+def test_an_unresolvable_drain_window_is_rejected_before_docker(
+    tmp_path: Path, window: str
+) -> None:
+    """The probe cannot resolve it, and nothing has to run to know that.
+
+    Both sides of this comparison are fixed before the run: a declared window
+    against the probe's own sampling interval. SP004 used to answer it as an
+    INCONCLUSIVE verdict, which meant pulling an image, starting it, signalling
+    it and waiting for the exit first.
+    """
+    path = tmp_path / "narrow.yaml"
+    path.write_text(_in_app_config(window))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "config error" in result.output
+    assert "in_app_window" in result.output
+    assert "1000ms" in result.output, "the message must name the floor it failed"
+    assert "prestop" in result.output, "the message must name the way out"
+
+
+def test_an_unresolvable_drain_window_stops_test_too(tmp_path: Path) -> None:
+    """Rejecting it in `validate` alone would still let `test` start a container."""
+    path = tmp_path / "narrow.yaml"
+    path.write_text(_in_app_config("1s"))
+
+    result = runner.invoke(app, ["test", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "in_app_window" in result.output
+
+
+def test_a_resolvable_drain_window_is_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "wide.yaml"
+    path.write_text(_in_app_config("5s"))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 0
+    assert "configuration valid" in result.output
+
+
+def test_the_window_floor_binds_only_the_strategy_that_measures_it(
+    tmp_path: Path,
+) -> None:
+    """prestop and none never read listener timing, so the floor cannot apply."""
+    for strategy in ("prestop", "none"):
+        path = tmp_path / f"{strategy}.yaml"
+        path.write_text(
+            "version: 1\n"
+            "target: {image: fixture, port: 8000}\n"
+            "deployment:\n"
+            "  termination_grace_period: 30s\n"
+            "  pre_stop: {type: sleep, duration: 5s}\n"
+            f"  drain: {{strategy: {strategy}, in_app_window: 1s}}\n"
+        )
+
+        result = runner.invoke(app, ["validate", "--config", str(path)])
+
+        assert result.exit_code == 0, f"{strategy}: {result.output}"
+
+
 @pytest.mark.parametrize("contract_id", [f"SP{number:03}" for number in range(1, 7)])
 def test_explain_documents_every_contract(contract_id: str) -> None:
     result = runner.invoke(app, ["explain", contract_id])

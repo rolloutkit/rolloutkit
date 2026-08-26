@@ -9,7 +9,6 @@ from preflightkit.contracts.base import Contract, ContractResult, Precondition, 
 from preflightkit.config.models import DrainStrategy
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.lifecycle import TEARDOWN_CALIBRATION_MAX_BUDGET_MS
-from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
 from preflightkit.contracts.inflight import MIN_JITTER_RATIO
 
 
@@ -155,22 +154,6 @@ def _direct_connection_path(report: RunReport) -> Resolution:
     )
 
 
-def _in_app_window_resolvable(report: RunReport) -> Resolution:
-    drain = report.config.deployment.drain
-    interval_ms = report.accept_probe_interval_ms or ACCEPT_PROBE_INTERVAL_MS
-    threshold_ms = interval_ms * 20
-    applicable = drain.strategy is DrainStrategy.IN_APP
-    satisfied = not applicable or drain.in_app_window > threshold_ms
-    return Resolution(
-        satisfied,
-        f"in_app_window {drain.in_app_window}ms must be greater than 20 probe "
-        f"intervals ({threshold_ms}ms at {interval_ms}ms per probe)",
-        {
-            "in_app_window_ms": drain.in_app_window,
-            "accept_window_resolution_ms": interval_ms,
-            "minimum_in_app_window_ms": threshold_ms,
-        },
-    )
 RESOLVERS: dict[str, Resolver] = {
     "inflight_enabled": _inflight_enabled,
     "readiness_fallback_resolvable": _readiness_fallback_resolvable,
@@ -178,7 +161,6 @@ RESOLVERS: dict[str, Resolver] = {
     "baseline_steady_state_2xx": _baseline_steady_state_2xx,
     "shutdown_budget_resolvable": _shutdown_budget_resolvable,
     "direct_connection_path": _direct_connection_path,
-    "in_app_window_resolvable": _in_app_window_resolvable,
 }
 
 

@@ -13,7 +13,8 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from preflightkit.config.models import Config
+from preflightkit.config.models import Config, DrainStrategy
+from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
 
 DEFAULT_CONFIG_NAMES = ("preflightkit.yaml", "preflightkit.yml")
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -169,9 +170,46 @@ def load_config(
         )
 
     try:
-        return Config.model_validate(raw)
+        config = Config.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(_render_validation_error(exc)) from exc
+    _reject_unmeasurable_drain_window(config)
+    return config
+
+
+#: How many accept-probe samples a declared window has to span before the probe
+#: can tell the window apart from its own sampling interval.
+MIN_WINDOW_PROBE_SAMPLES = 20
+
+
+def _reject_unmeasurable_drain_window(config: Config) -> None:
+    """Refuse an in_app window the accept probe could never resolve.
+
+    This is not a verdict about the target. Both sides of the comparison are
+    known before anything runs — a declared window against a fixed probe
+    interval — so nothing is learned by starting a container to discover it.
+    Answering it here costs nothing and answers immediately; SP004 used to
+    answer it after a full run, having pulled an image, started it, sent a
+    signal and waited for the exit, only to report INCONCLUSIVE.
+    """
+    drain = config.deployment.drain
+    if drain.strategy is not DrainStrategy.IN_APP:
+        return
+    floor_ms = MIN_WINDOW_PROBE_SAMPLES * ACCEPT_PROBE_INTERVAL_MS
+    if drain.in_app_window > floor_ms:
+        return
+    raise ConfigError(
+        f"deployment.drain.in_app_window is {drain.in_app_window}ms, which is "
+        f"not greater than the {floor_ms}ms the accept probe can resolve "
+        f"({MIN_WINDOW_PROBE_SAMPLES} samples at {ACCEPT_PROBE_INTERVAL_MS}ms). "
+        "A window that small cannot be distinguished from the probe's own "
+        "sampling, so no listener timing measured across it would mean "
+        "anything.\n"
+        f"Raise deployment.drain.in_app_window above {floor_ms}ms — 5s is the "
+        "common Kubernetes value — or declare a strategy that does not depend "
+        "on listener timing: prestop delegates the gap to the platform, none "
+        "reports it as uncovered."
+    )
 
 
 def _render_validation_error(exc: ValidationError) -> str:

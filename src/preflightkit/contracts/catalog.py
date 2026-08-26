@@ -382,7 +382,15 @@ CATALOG: dict[str, ContractDoc] = {
             "When readiness is the zero-config fallback target, its p50 must be at "
             "least 10x the probe-path jitter, so the before/after-SIGTERM boundary "
             "is distinguishable from noise. An explicit --inflight-path bypasses "
-            "this gate.",
+            "this gate. Be aware that the fallback is the default path: with no "
+            "--inflight-path, SP005 measures whatever the readiness endpoint does, "
+            "and a fast readiness endpoint is often close enough to the jitter "
+            "floor that the same service resolves on one host and not on another. "
+            "Measured: a readiness p50 of 2.5-5.3ms against a 0.23-1.66ms jitter "
+            "floor gave ratios from 1.9x to 15.3x on one machine. If SP005 reports "
+            "readiness_fallback_below_resolution, that is the tool declining to "
+            "guess, not a defect in the service; point --inflight-path at a slower "
+            "representative endpoint and the measurement becomes stable.",
             "Shutdown must visibly start, otherwise the request outcomes cannot be "
             "attributed to a shutdown transition at all — this is the precondition "
             "that stops a process which ignores SIGTERM from reporting a clean "

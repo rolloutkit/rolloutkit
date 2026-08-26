@@ -89,6 +89,15 @@ Trivy, Checkov, KubeLinter, Polaris, or Semgrep.
   `in_app` strategy requires direct listener timing; `none` still warns, and
   `prestop` remains applicable without that timing. Readiness remains
   measurable. Linux sends traffic directly to the unpublished container IP.
+- **Readiness fallback.** Without `--inflight-path`, SP005 falls back to the
+  readiness endpoint as its in-flight target. A service whose readiness is fast
+  can leave the endpoint's p50 too close to the measurement jitter floor to
+  separate the two, and SP005 then reports `readiness_fallback_below_resolution`
+  rather than guessing. Because the jitter floor is a property of the host, the
+  same service can resolve on one machine and not on another: a 2.5-5.3ms
+  readiness p50 against a 0.23-1.66ms floor was measured at 1.9x to 15.3x on a
+  single machine, against a required 10x. Pass `--inflight-path` with a slower
+  representative endpoint for a result that does not depend on where it ran.
 - **Windows** is not supported.
 
 ## Security

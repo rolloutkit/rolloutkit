@@ -1528,5 +1528,69 @@ out, neither implemented, because both change something deliberate:
 
 The second is the smaller change but touches the repo's central guarantee, that
 every declared branch is reached by a real image. That guarantee exists because
-SP006 once declared a FAIL no code could reach and CI stayed green. Weakening it
-to settle one flaky row deserves a decision, not a patch.
+SP006 once declared a FAIL no code could reach and CI stayed green.
+
+### Resolved: classified, not excused
+
+The second was taken, as a classification rather than an exemption. Branches are
+now declared in the catalog as one of two kinds. `live_image` branches assert
+something about the target — the process exited, the connection was reset,
+readiness changed — and only a real image can show the tool read that correctly;
+they keep the guarantee unchanged. `decision_unit` branches compare numbers
+already measured and say whether the comparison resolves at all; the image is
+not an input, so a container supplies the comparison with whatever the host
+produced and the verdict tracks the machine instead of the target.
+
+`readiness_fallback_below_resolution` is the only branch classified
+`decision_unit` so far. Its proof is a named pytest node id that the coverage
+gate runs, so the branch is only covered while that test is green, and a rename
+fails rather than silently uncovering it. The classification is repeated
+independently in `tests/test_coverage.py::REVIEWED_DECISION_UNIT`; the two must
+agree, which is what keeps this from becoming the exception list it replaced.
+
+### The real finding is not about tests
+
+The numbers above describe the tool's default path, not just a fixture. With no
+`--inflight-path`, SP005 falls back to the readiness endpoint, and readiness is
+usually the fastest endpoint a service has. On this machine that put p50 at
+2.5-5.3ms against a 0.23-1.66ms jitter floor: 1.9x to 15.3x against a required
+10x, straddling it. The jitter floor belongs to the host, not the image, so the
+zero-config one-line prediction can resolve on one machine and decline on
+another for the same service.
+
+The tool's behaviour is correct — declining to guess is the right answer, and
+the summary already names the fix. What was missing is that the limitation was
+not written down anywhere a user would meet it. It now appears in README under
+Known limitations and in `explain SP005`'s precondition text, both with the
+measured numbers.
+
+### Open question: is 10x the right number for the fallback path?
+
+`MIN_JITTER_RATIO = 10` is one constant serving two different jobs, and the
+evidence for it comes from only one of them. Its recorded basis is a configured
+in-flight path: 1.4-1.8ms of daemon jitter against a 30ms window, about 20x,
+and that window worked. On a configured path the ratio is a sanity check on a
+window the user chose, and a user who wants more margin lengthens the endpoint.
+
+On the fallback path the same constant decides whether the default experience
+runs at all, against a window nobody chose — half the readiness p50, which is
+whatever the service happens to be. There the constant is not a sanity check,
+it is the gate on the zero-config path, and the measurements say it sits right
+where real services land.
+
+Two things argue for a separate, higher fallback constant rather than a lower
+one. First, the failure modes are not symmetric: on a configured path a
+marginal ratio yields a noisy count the user can discount, while on the fallback
+path it decides between measuring and not measuring, so being wrong near the
+boundary costs more. Second, the numbers show the boundary is exactly where the
+default lands — 1.9x to 15.3x on one machine for one service — which means the
+current constant makes host identity, not service behaviour, the deciding input.
+Raising the fallback constant would convert an unstable answer into a stable
+"point --inflight-path at something slower", which is the action the user has to
+take either way.
+
+What argues against acting yet: all of this is one machine. The claim that the
+default lands on the boundary needs the same measurement on Linux and on CI
+before a constant is chosen, because the jitter floor is exactly the term that
+varies by host, and picking a number from one laptop's floor would repeat the
+mistake this note is about. Not changed.

@@ -1,8 +1,9 @@
 name: CI
 
+# The fast suite guards every push; the Docker matrix costs five and a half
+# minutes and only earns that on a pull request or on main.
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -10,10 +11,40 @@ permissions:
   contents: read
 
 jobs:
-  linux:
-    name: Linux lifecycle suite
+  fast:
+    name: Fast suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Ruff
+        run: uv run ruff check src tests
+
+      - name: Run the suite that needs no daemon
+        run: uv run pytest -q -m "not docker"
+
+  docker:
+    name: Docker matrix
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Nothing here can pass if the fast suite is red, and it costs 30x as much.
+    needs: fast
+    if: >-
+      github.event_name == 'pull_request'
+      || github.ref == 'refs/heads/main'
+      || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Check out source
@@ -33,13 +64,7 @@ jobs:
           docker pull busybox:latest
           docker pull python:3.12-slim
 
-      - name: Ruff
-        run: uv run ruff check src tests
-
-      - name: Verify contract branch coverage
-        run: uv run pytest -q tests/test_coverage.py
-
-      - name: Run full suite with Docker matrix
+      - name: Run the Docker matrix
         env:
           PREFLIGHTKIT_COMMIT: ${{ github.sha }}
-        run: uv run pytest -q
+        run: uv run pytest -q -m docker

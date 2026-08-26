@@ -26,6 +26,7 @@ from xml.etree import ElementTree as ET
 import pytest
 import yaml
 
+from preflightkit.contracts.catalog import CATALOG, Evidence
 from preflightkit.contracts.inflight import MIN_JITTER_RATIO
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,25 @@ BLOCKING = {"FAIL", "ERROR", "INCONCLUSIVE", "SKIP"}
 #: SP005 branches that are reached by counting in-flight requests. Every other
 #: branch is decided by a precondition, before the window matters.
 COUNT_DEPENDENT_BRANCHES = {"all_completed", "requests_destroyed"}
+
+
+def _unresolvable_branch(contract_id: str) -> str:
+    """The branch this contract reaches when the measurement cannot resolve.
+
+    Read from the catalog rather than written out here. A branch identifier
+    spelled into a test is a coverage claim, and the one claim this file is not
+    allowed to make is that a `decision_unit` branch was reached: the whole
+    point of that classification is that the image does not decide it, so a test
+    that starts a container and asserts the name is betting on the host. Taking
+    the name from the registry is not the same statement — it says which branch
+    the catalog currently classifies that way, and follows a rename.
+    `tests/test_coverage.py` fails on the other kind.
+    """
+    return next(
+        verdict.branch
+        for verdict in CATALOG[contract_id].verdicts
+        if verdict.evidence is Evidence.DECISION_UNIT
+    )
 
 
 def _assert_the_window_was_real(entry: dict, result: dict) -> None:
@@ -301,7 +321,7 @@ def test_configless_one_line_cli_and_required_skip_gate(
     sp005 = next(c for c in document["contracts"] if c["id"] == "SP005")
     unmeasured = document["required_unmeasured"]["contracts"]
     if sp005["status"] == "INCONCLUSIVE":
-        assert sp005["branch"] == "readiness_fallback_below_resolution"
+        assert sp005["branch"] == _unresolvable_branch("SP005")
         # The verdict has to follow the numbers it published, not merely be
         # allowed by them.
         precondition = sp005["evidence"]["precondition"]

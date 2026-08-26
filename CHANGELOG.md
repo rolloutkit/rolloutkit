@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drain strategy that can reach it; the branch catalogue is now enforced against
   the contracts by test.
 - Readiness is used as the SP005 fallback target when no in-flight path is set.
+- Branch coverage is enforced against Python tests as well as against
+  `fixtures/matrix.yaml`. A test that names a verdict branch has to have that
+  branch registered — by a matrix row, or by being the proof the catalog names
+  for a `decision_unit` branch. The matrix could previously be cleaned while a
+  hand-written copy of the same claim stayed behind in a test, unseen.
 - An `in_app` drain window the accept probe cannot resolve is now a
   configuration error (exit code 2) from both `validate` and `test`, reported
   before any container starts. It was previously a contract verdict, which meant

@@ -490,11 +490,10 @@ class DockerRuntime:
     ) -> str | None:
         """An auxiliary container of our own, or None if we cannot have one.
 
-        Never pulls. `start()` refuses to pull the target because the user has to
-        know exactly which bytes were measured; the same rule applies here for a
-        different reason — reaching the network to complete a diagnostic would
-        make an offline run behave differently from an online one without saying
-        so.
+        Never pulls, unlike `start()`, which announces a pull and performs it.
+        Reaching the network to complete a diagnostic would make an offline run
+        behave differently from an online one without saying so; a missing image
+        here degrades to the fallback path, and the report names it.
         """
         if not await self.image_exists(PROBE_IMAGE):
             return None

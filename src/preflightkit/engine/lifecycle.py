@@ -11,6 +11,7 @@ import os
 import platform
 import time
 import uuid
+from collections.abc import Callable
 
 import anyio
 import httpx
@@ -22,7 +23,11 @@ from preflightkit.probes.http import probe_http, wait_for_readiness, wait_for_tc
 from preflightkit.runtime.base import Container, ContainerSpec, DaemonEvent
 from preflightkit.runtime.docker import DockerError, DockerRuntime
 from preflightkit.runtime.traffic_probe import TrafficProbe
-from preflightkit.traffic.baseline import measure_baseline, measure_readiness_baseline
+from preflightkit.traffic.baseline import (
+    BASELINE_SAMPLES,
+    measure_baseline,
+    measure_readiness_baseline,
+)
 from preflightkit.traffic.accept_probe import (
     ACCEPT_PROBE_INTERVAL_MS,
     TERMINAL_REFUSED_STREAK,
@@ -33,6 +38,9 @@ from preflightkit.traffic.generator import run_long_requests
 from preflightkit.contracts.inflight import MIN_JITTER_RATIO
 
 READINESS_WATCH_INTERVAL_MS = 20
+
+#: Where phase announcements go. None in tests and in embedded use.
+Progress = Callable[[str], None] | None
 
 #: Daemon events subscribed to for the shutdown window. `kill` dates the signal
 #: on the daemon's own clock, `die` dates the exit on the same one.
@@ -67,7 +75,9 @@ class StartupFailure(Exception):
         self.logs = logs
 
 
-async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
+async def run_experiment(
+    config: Config, runtime: DockerRuntime, *, progress: Progress = None
+) -> RunReport:
     report = RunReport(config=config)
     _record_host(report)
     report.docker_endpoint = f"{runtime.endpoint.socket_path} ({runtime.endpoint.source})"
@@ -77,7 +87,7 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         "arch": runtime.server_info.get("Arch"),
     }
     run_token = uuid.uuid4().hex[:12]
-    phase_started_ns = now_ns()
+    phase_started_ns = _begin_phase(progress, "starting the traffic probe")
     network = await runtime.create_network(f"pfk-{run_token}")
     report.network_name = network.name
     started: list[Container] = []
@@ -104,6 +114,12 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         _finish_phase(report, "probe_image_preparation", phase_started_ns)
 
         phase_started_ns = now_ns()
+        # The phase clock is already running; this only names the phase, and
+        # only when there is a dependency to name.
+        if config.services:
+            _begin_phase(
+                progress, f"starting dependencies: {', '.join(config.services)}"
+            )
         for service_name, service in config.services.items():
             dependency = await runtime.start(
                 ContainerSpec(
@@ -120,7 +136,9 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             started.append(dependency)
         _finish_phase(report, "dependencies", phase_started_ns)
 
-        phase_started_ns = now_ns()
+        phase_started_ns = _begin_phase(
+            progress, f"starting the target and waiting for readiness: {config.target.image}"
+        )
         container_start_requested_ns = now_ns()
         container = await runtime.start(
             ContainerSpec(
@@ -182,6 +200,10 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         _finish_phase(report, "target_start", phase_started_ns)
 
         phase_started_ns = now_ns()
+        # Calibration is skipped for budgets it cannot affect; announcing it
+        # unconditionally would name a phase that never runs.
+        if config.deployment.shutdown_budget_ms <= TEARDOWN_CALIBRATION_MAX_BUDGET_MS:
+            _begin_phase(progress, "calibrating the teardown floor")
         await _calibrate(
             runtime,
             container,
@@ -193,7 +215,9 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         )
         _finish_phase(report, "calibration", phase_started_ns)
 
-        phase_started_ns = now_ns()
+        phase_started_ns = _begin_phase(
+            progress, f"measuring the baseline: {BASELINE_SAMPLES} requests plus keep-alive"
+        )
         if traffic_probe is not None:
             await traffic_probe.baseline(report)
             _finish_baseline(config, report)
@@ -201,14 +225,18 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
             await _baseline(config, runtime, container, report)
         _finish_phase(report, "baseline", phase_started_ns)
 
-        phase_started_ns = now_ns()
+        phase_started_ns = _begin_phase(
+            progress, "sending SIGTERM and observing the shutdown"
+        )
         if traffic_probe is not None:
             await traffic_probe.shutdown(runtime, container, report)
         else:
             await _shutdown(config, runtime, container, report)
         _finish_phase(report, "experiment", phase_started_ns)
     finally:
-        teardown_started_ns = now_ns()
+        teardown_started_ns = _begin_phase(
+            progress, "removing the containers and the network"
+        )
         if container is not None:
             try:
                 report.logs_tail = await runtime.logs(container, tail=_LOG_TAIL)
@@ -229,6 +257,19 @@ async def run_experiment(config: Config, runtime: DockerRuntime) -> RunReport:
         _finish_phase(report, "teardown", teardown_started_ns)
 
     return report
+
+
+def _begin_phase(progress: Progress, message: str) -> int:
+    """Name the phase that is starting, and stamp its start.
+
+    The run is a sequence of long silences — a 25-request baseline against a slow
+    endpoint takes as long as the endpoint does — and a tool that prints nothing
+    for twenty seconds is indistinguishable from one that has hung. Progress goes
+    to stderr; stdout stays machine-readable.
+    """
+    if progress is not None:
+        progress(message)
+    return now_ns()
 
 
 def _finish_phase(report: RunReport, phase: str, started_ns: int) -> None:

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Run-scoped sidecar traffic measurement with explicit host fallback evidence.
 - Per-run and aggregate `phase_durations_ms` timing evidence.
 - `--version` output containing both package version and source commit.
+- Phase-by-phase progress on stderr, numbered per run under `--repeat`.
 
 ### Changed
 

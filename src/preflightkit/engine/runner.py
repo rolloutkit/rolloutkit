@@ -58,10 +58,12 @@ async def _run_session(
 ) -> Session:
     session = Session(run_id=new_run_id(), image=config.target.image)
     async with DockerRuntime(progress=progress) as runtime:
-        for _ in range(repeat):
+        for index in range(repeat):
             started = now_ns()
             try:
-                report = await run_experiment(config, runtime)
+                report = await run_experiment(
+                    config, runtime, progress=_run_progress(progress, index, repeat)
+                )
             except StartupFailure as exc:
                 raise InfrastructureError(str(exc), logs=exc.logs) from exc
             outcome = RunOutcome(
@@ -72,3 +74,16 @@ async def _run_session(
                 outcome.results = evaluate_contracts(report, ALL_CONTRACTS)
             session.runs.append(outcome)
     return session
+
+
+def _run_progress(
+    progress: Callable[[str], None] | None, index: int, repeat: int
+) -> Callable[[str], None] | None:
+    """Number the phases when there is more than one run to tell apart.
+
+    Under `--repeat 3` the same seven phase lines appear three times; without the
+    prefix they read as one run that keeps restarting.
+    """
+    if progress is None or repeat == 1:
+        return progress
+    return lambda message: progress(f"run {index + 1}/{repeat}: {message}")

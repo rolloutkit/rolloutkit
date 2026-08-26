@@ -342,3 +342,42 @@ def test_one_image_two_profiles(built_images: None) -> None:
     assert rows["ignores-sigterm"]["image"] == rows["slow-shutdown"]["image"]
     assert rows["ignores-sigterm"]["expect"]["SP006"]["status"] == "FAIL"
     assert rows["slow-shutdown"]["expect"]["SP006"]["status"] == "WARN"
+
+
+def test_progress_names_each_phase_on_stderr_and_leaves_stdout_machine_clean(
+    built_images: None,
+) -> None:
+    """Item three of the first-run problem: the warm-cache run was the silent one.
+
+    The pull line only ever appeared on a cold cache. With the image already
+    present the tool printed nothing at all until the report — which, on a slow
+    endpoint, is twenty seconds of a terminal that looks hung.
+    """
+    run = subprocess.run(
+        [
+            str(_cli()),
+            "test",
+            "--config",
+            str(FIXTURES / "stdlib-http/identical-readiness-health.yaml"),
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=400,
+    )
+    if run.returncode == 3:
+        pytest.skip(f"no verdict: {run.stderr.strip()[:300]}")
+
+    json.loads(run.stdout)  # stdout carries the report and nothing else
+    offsets = [
+        run.stderr.index(phase)
+        for phase in (
+            "starting the traffic probe",
+            "starting the target and waiting for readiness",
+            "measuring the baseline",
+            "sending SIGTERM",
+            "removing the containers",
+        )
+    ]
+    assert offsets == sorted(offsets), f"phases out of order:\n{run.stderr}"

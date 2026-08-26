@@ -1596,6 +1596,15 @@ varies by host, and picking a number from one laptop's floor would repeat the
 mistake this note is about. Not changed. The readings the choice needs are now
 kept on every run — see "What is now recorded on every run" below.
 
+Since corrected in part. Thirty-two runs across four load conditions say the
+ratio barely moves with how busy the machine is, because the jitter probe and
+the readiness probe pay the same costs and the ratio divides them out. The term
+that decides the fallback verdict on this host is the endpoint's own speed, plus
+a sampling artefact on a cold Docker VM. "Host identity is the deciding input"
+is therefore too strong; what remains open is whether the jitter *floor* differs
+enough between Linux, macOS and CI to move the threshold. See "What the fallback
+ratio tracks, measured four ways" at the end of this file.
+
 ## Watch list and measurement record (2026-08-26; preflightkit commit: 394996b0bd0afb74d7021b3d51db92a3302293ff)
 
 ### Watch item: SP001 `within_resolution` is the same one-way knob
@@ -1752,3 +1761,144 @@ the teardown floor was 237-250ms on `Linux 6.8.0-134-generic` and 50.73ms on
 this macOS host, roughly fivefold. A constant chosen from either one alone would
 be calibrated to that one. `MIN_JITTER_RATIO` is unchanged and stays unchanged
 until the same block exists for a Linux server, a macOS laptop and a CI runner.
+
+## What the fallback ratio tracks, measured four ways (2026-08-26; preflightkit commit: a738ee65314ae27e399fe70a94484971a11e5eab)
+
+Thirty-two predictions of the same zero-config command on one macOS host,
+`Darwin 25.5.0 / docker 29.7.2 / 11cpu`, run with `scripts/measure-runs.sh` in
+four batches of eight. The command is the one whose SP005 verdict has been
+flipping all week:
+
+    preflightkit test pfk-fixture-good --port 8000 --ready-url /ready --format json
+
+This was set up to test a specific claim: that the ratio is driven by ambient
+load, that a busy machine separates readiness from jitter better than an idle
+one, and that the fallback path therefore declines most often on an empty
+laptop — the first thing a new user does. Three of the four batches were chosen
+to confirm or break that. It broke.
+
+### The four conditions
+
+| batch | machine state | jitter med | p50 med | ratio med | ratio range | cleared 10 |
+|---|---|---|---|---|---|---|
+| `ambient` | as found, 73% CPU idle | 0.847ms | 4.30ms | 4.68 | 1.22-16.08 | 1 of 8 |
+| `cpu-loaded` | 16 spinners, ~0% idle | 1.155ms | 3.68ms | 3.59 | 1.64-14.75 | 1 of 8 |
+| `docker-churn` | 4 concurrent container create/destroy loops, 0.8% idle | 0.312ms | 1.17ms | 3.62 | 1.99-7.41 | 0 of 8 |
+| `warm-quiet` | churn run for 25s, then stopped; 60% idle | 0.145ms | 0.36ms | 2.52 | 2.08-3.20 | 0 of 8 |
+
+Ambient load is not the variable. Saturating every core with work that never
+touches Docker moved the median ratio from 4.68 to 3.59, which is nothing beside
+a within-batch range of 1.22 to 16.08. Two runs out of thirty-two cleared the
+constant, both on a jitter sample that happened to land low — 0.330ms and
+0.241ms against batch medians of 0.847 and 1.155.
+
+### The variable is how warm the Docker VM is, and it moves both terms together
+
+The two batches that changed the numbers are the two that had the daemon busy
+beforehand. Between `ambient` and `warm-quiet` the jitter floor fell 5.8-fold
+and readiness p50 fell 11.9-fold. The duration table from the same runs says the
+same thing from the other side: the `calibration` phase, which is where the
+jitter floor is measured, took a median 640ms in the `ambient` batch and 91ms in
+`warm-quiet` — seven times faster for identical work.
+
+An idle Docker VM on macOS pays a wake-up on each probe. That cost lands on
+whichever probe happens to catch it, which is why the cold batches are not just
+slower but wildly noisier: `ambient` spans 13-fold, `warm-quiet` spans 1.5-fold.
+
+Because the wake-up cost lands on both the jitter probe and the readiness probe,
+the ratio between them is close to scale-invariant. That is what a ratio is for,
+and it is the reassuring half of this result: `MIN_JITTER_RATIO` is not measuring
+how busy the machine is.
+
+### What it is measuring is the endpoint, and the answer does not improve
+
+On the tightest, most repeatable batch — the one where every reading agrees with
+every other reading to within 1.5-fold — this endpoint's ratio is 2.52. A
+readiness endpoint that answers in 0.36ms is not distinguishable from a probe
+floor of 0.145ms, and no amount of load makes it so. The tool declining here is
+correct, and it is correct for a reason that has nothing to do with the host
+being unusual.
+
+The control makes the point without any argument. Two runs of the
+`readiness-fallback-slow` fixture, same host, same afternoon, same image, same
+`/ready` path. One environment variable differs — `READINESS_DELAY_SECONDS=0.2`
+makes the handler sleep before answering:
+
+| readiness handler | jitter | p50 | ratio |
+|---|---|---|---|
+| answers immediately (warm-quiet median) | 0.145ms | 0.36ms | 2.52 |
+| sleeps 200ms first | 0.643ms | 205.90ms | 320.40 |
+
+One env var moved the ratio 127-fold. Four machine states moved the median
+1.9-fold. Whatever `MIN_JITTER_RATIO` is gating, it is not the host.
+
+(The slow fixture also declares a longer grace period and startup budget, which
+is why it is a fixture rather than a flag. Neither is an input to jitter or to
+readiness p50.)
+
+That reframes the open question. The reason to collect readings from a Linux
+server and a CI runner is no longer "the constant might be calibrated to this
+laptop". It is to find out whether the jitter *floor* differs enough across
+hosts to move the threshold at all — because on this host, the thing being
+compared against it is a property of the endpoint, and a lower coefficient would
+not make a 2.5-to-1 separation real. It would only make the tool claim it.
+
+`MIN_JITTER_RATIO` is unchanged.
+
+### Two corrections to what was believed before this
+
+**The clean-versus-matrix comparison was cold-versus-warm, not idle-versus-busy.**
+The three clean-directory runs recorded in the previous section — 2.85, 4.07,
+6.61 — were taken on a cold VM and sit inside the `ambient` batch's range. The
+matrix run that reached `all_completed` came after thirty-nine other Docker
+tests had been warming the daemon. Both observations are accounted for without
+any appeal to load.
+
+**The first-run experience is not reliably bad; it is unrepeatable, which is
+worse.** The prediction was that a new user on an empty laptop gets the
+INCONCLUSIVE. What the numbers say is that a new user on a cold machine gets
+whichever of the two the jitter sample happens to produce — the `ambient` batch
+contains both a 1.22 and a 16.08, eight runs apart, same command, same image,
+same minute. A user who runs it twice can see it decline and then resolve, which
+reads as the tool being unreliable rather than as the endpoint being too fast to
+measure. The wording SP005 prints already gives the numbers and the fix; that is
+the right response and it does not change here.
+
+### `load_average` is provenance, not explanation, at least on macOS
+
+Worth recording next to the `resolution_calibration` block that carries it. It
+read 43.8 during `ambient` while the CPU was 73% idle, and 23-28 during
+`docker-churn` while four container loops held the CPU at 99%. It rose when
+sixteen spinners were added and then kept falling regardless of what the machine
+was doing — 9-11 by `warm-quiet`, 3.6 fifteen minutes later — because it was decaying
+from something that had run before any of this started. Short-lived container
+processes never accumulate the run-queue depth it counts.
+
+So across these four batches it tracked its own decay, not the pressure the runs
+were under, and it cannot be used to order them. It stays in the record because
+it costs nothing and may behave better on Linux, where the batches would want to
+be re-read against it rather than assumed. The two figures that did track the
+machine's state are the jitter floor and the `calibration` phase duration, both
+already recorded per run.
+
+### How these were taken
+
+`scripts/measure-runs.sh -n 8 -l <label> -- pfk-fixture-good --port 8000
+--ready-url /ready`, from an empty directory so that no `preflightkit.yaml` is
+discovered and SP005 takes the readiness fallback. Every document is kept;
+`scripts/summarise_runs.py` prints the duration, resolution and teardown blocks
+with a median row. The host names itself out of `host_id`, so a batch cannot be
+filed under the wrong machine. Configuration files for real services live
+outside this repo and are passed with `-c`.
+
+The harness is POSIX shell and standard-library Python, and its parsing is
+covered by `tests/test_measurement_scripts.py` against documents built in the
+test rather than measured — including a run that died before writing one, which
+must not enter the medians as a fast run. It has not yet been executed on Linux.
+That is the next thing to find out, and it is cheap to find out first: a crash
+on the second host costs the trip, not the table.
+
+Teardown was `not_calibrated` in all thirty-two runs: the profile's budget is far
+from the floor, so nothing needed measuring. The cross-host teardown figure this
+file already carries (237-250ms on Linux, 50.73ms here) still comes from the
+runs that did calibrate.

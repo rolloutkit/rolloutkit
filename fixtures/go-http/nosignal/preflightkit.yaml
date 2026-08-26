@@ -29,11 +29,13 @@ contracts:
     request:
       method: GET
       path: /work
-      expected_duration: 1s
+      expected_duration: 5s
     concurrent: 10
-    # This fixture owns the timing: the signal must land while the fixed 1s
+    # This fixture owns the timing: the signal must land while the fixed 5s
     # handler is sleeping. A baseline-derived midpoint varies with runner load
-    # and can stop exercising destruction.
+    # and can stop exercising destruction. Kept small against a handler five
+    # times longer so the surviving window is 4.9s, not the 900ms that used to
+    # let a loaded runner measure an empty one.
     sigterm_after: 100ms
 
 timeouts:

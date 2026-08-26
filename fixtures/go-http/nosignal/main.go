@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const workDuration = time.Second
+const workDuration = 5 * time.Second
 
 func routes() *http.ServeMux {
 	mux := http.NewServeMux()
@@ -22,8 +22,12 @@ func routes() *http.ServeMux {
 		w.Write([]byte(`{"status":"ready"}`))
 	})
 
-	// Long enough to outlast Docker API signal-delivery latency on a loaded
-	// runner, while still keeping the fixture cheap.
+	// The signal is aimed 100ms in, so this is the whole margin the fixture
+	// has: whatever is left of the handler after T0 is what SP005 counts as
+	// in flight. One second left only 900ms of it, close enough to a loaded
+	// runner's scheduling noise that the window occasionally measured empty
+	// and SP005 reported nothing_in_flight instead of the destruction this
+	// row exists to prove.
 	mux.HandleFunc("/work", func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(workDuration)
 		w.Header().Set("Content-Type", "application/json")

@@ -33,6 +33,23 @@ sigterm_at: float | None = None
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def is_accept_probe(self) -> bool:
+        """True for SP004's accept probe, false for the readiness watcher.
+
+        Both hit the readiness path with `Connection: close` after T0, so that
+        header alone names neither of them. The probe writes its request by
+        hand and sends exactly `Host` and `Connection`; the watcher goes
+        through `http.client`, which always adds `Accept-Encoding: identity`.
+
+        Telling them apart is what makes the close below safe rather than
+        lucky: only the probe is serial, so only while *its* request is being
+        served is the accept queue guaranteed to hold nothing SP004 counts.
+        """
+        return (
+            self.headers.get("Connection", "").lower() == "close"
+            and self.headers.get("Accept-Encoding") is None
+        )
+
     def do_GET(self) -> None:  # noqa: N802
         if (
             STOP_ACCEPT_AFTER_MS
@@ -62,6 +79,30 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/slow":
             self.do_GET_slow()
 
+        # Decided before the response is written, and acted on in two halves
+        # around it. Closing a listening socket destroys whatever is sitting in
+        # its accept queue: the peer's handshake already succeeded, so it is
+        # told it is connected and then reset without a reply. SP004 is right
+        # to call that a failure — this fixture is simply not the specimen for
+        # it, and `accept-then-reset-in-app` is.
+        #
+        # The safe moment is exactly this one. The accept probe is serial and
+        # is blocked on the reply to this very request, so it has no handshake
+        # anywhere and the queue holds nothing SP004 counts. Answering first
+        # gives it the interval between the flush and the close to open its
+        # next connection into a queue about to be destroyed — a scheduler
+        # slice wide, which is why it was a run in eight on an idle laptop and
+        # a whole CI job on a loaded two-core runner.
+        finishing = (
+            draining
+            and drain_elapsed.is_set()
+            and self.is_accept_probe()
+            and not listener_closing.is_set()
+        )
+        if finishing:
+            listener_closing.set()
+            stop_listening()
+
         status = 503 if self.path == "/ready" and draining and READINESS_DROPS else 200
         body = b'{"ready":false}' if status == 503 else b'{"ready":true}'
         self.send_response(status)
@@ -72,25 +113,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.wfile.flush()
 
-        # Close between probes, not from a wall-clock timer in the middle of a
-        # successful handshake. This fixture's normal drain path is meant to
-        # model a listener that finishes the connection it just accepted. The
-        # RESET_AFTER_SIGTERM path above deliberately keeps the opposite
-        # behavior for the universal accept_then_reset failure branch.
-        if (
-            draining
-            and drain_elapsed.is_set()
-            and self.headers.get("Connection", "").lower() == "close"
-            and not listener_closing.is_set()
-        ):
-            listener_closing.set()
-            # The SP004 accept probe identifies itself with Connection: close.
-            # Close the listening socket synchronously after flushing that
-            # response, before the probe can begin its next 50ms cycle. Leaving
-            # this to the cleanup thread creates a scheduler-dependent backlog
-            # handshake which is then correctly classified as accept_then_reset.
-            server.socket.close()
-            threading.Thread(target=close_and_exit, daemon=True).start()
+        # The connection this reply went out on was accepted long before the
+        # listening socket closed, so it is unaffected by that close and is
+        # answered normally. This fixture's drain path models a listener that
+        # finishes the connection it just accepted; the RESET_AFTER_SIGTERM
+        # path above deliberately keeps the opposite behaviour, for the
+        # universal accept_then_reset failure branch.
+        if finishing:
+            threading.Thread(target=exit_after_budget, daemon=True).start()
 
     def do_GET_slow(self) -> None:  # noqa: N802
         """Hold the connection open long enough to still be open at T0."""
@@ -111,6 +141,18 @@ def exit_after_budget() -> None:
     elapsed = 0.0 if sigterm_at is None else time.monotonic() - sigterm_at
     time.sleep(max(0.0, EXIT_SECONDS - elapsed))
     os._exit(0)
+
+
+def stop_listening() -> None:
+    """Stop accepting: the accept loop first, then the socket it selects on.
+
+    `serve_forever` is polling this socket in the main thread. Closing it from
+    under that poll is how a fixture ends as a traceback instead of a verdict,
+    so the loop is stopped first; `shutdown` is documented as safe from another
+    thread and returns within one poll interval.
+    """
+    server.shutdown()
+    server.socket.close()
 
 
 def close_and_exit() -> None:

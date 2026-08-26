@@ -35,16 +35,6 @@ images:
     context: drain-window
 
 fixtures:
-  - name: readiness-fallback-fast
-    image: pfk-fixture-good
-    config: good-fastapi-prestop/readiness-fallback-fast.yaml
-    description: >
-      No in-flight path is configured. Fast readiness is below the daemon-jitter
-      separation rule, so SP005 explains the measured p50 and jitter instead of
-      pretending a request window existed.
-    expect:
-      SP005: {status: INCONCLUSIVE, branch: readiness_fallback_below_resolution}
-
   - name: readiness-fallback-slow
     image: pfk-fixture-good
     config: good-fastapi-prestop/readiness-fallback-slow.yaml

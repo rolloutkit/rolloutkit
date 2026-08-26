@@ -16,9 +16,36 @@ verdicts belong to `in_app` alone.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 #: Rendered when a verdict is reachable under every declared drain strategy.
 ANY_STRATEGY = ("prestop", "in_app", "none")
+
+
+class Evidence(StrEnum):
+    """What kind of proof a branch's coverage requires.
+
+    The distinction is not about how important a branch is, it is about what its
+    decision actually reads.
+
+    `live_image` branches assert something about the target: whether the process
+    exited, whether a connection was reset, whether readiness changed. The tool
+    is reading reality, and only a real image can show that it read it correctly.
+    That is the failure `tests/test_coverage.py` was built for — SP006 once
+    declared a FAIL no code could reach, and CI stayed green because no fixture
+    was looking.
+
+    `decision_unit` branches assert something about the measurement instead: two
+    numbers that are already in hand get compared, and the branch says whether
+    the comparison can be resolved at all. The image under test is not an input.
+    Running one proves nothing the arithmetic does not already state, and it
+    supplies the comparison with whatever the host happened to produce — so the
+    verdict varies by machine rather than by target. Those branches are proved by
+    handing known values to the decision function, in a named test the gate runs.
+    """
+
+    LIVE_IMAGE = "live_image"
+    DECISION_UNIT = "decision_unit"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +60,13 @@ class Verdict:
     status: str
     meaning: str
     applies_to: tuple[str, ...] = ANY_STRATEGY
+    #: What kind of proof this branch's coverage requires. See `Evidence`.
+    evidence: Evidence = Evidence.LIVE_IMAGE
+    #: For `decision_unit` branches only: the pytest node id that proves this
+    #: branch by feeding known values to the decision function. The gate in
+    #: `tests/test_coverage.py` runs it, so a rename or a regression fails there
+    #: rather than leaving the branch quietly unproved.
+    proof: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,12 +416,25 @@ CATALOG: dict[str, ContractDoc] = {
                 "contracts.inflight was explicitly set to null. Under --fail-on "
                 "this still blocks, because SP005 is a required contract.",
             ),
+            # Classified decision_unit because the branch is decided by
+            # `readiness_p50 / jitter < MIN_JITTER_RATIO` — two numbers already
+            # measured, compared. The image contributes nothing: the same image
+            # lands on either side depending on the host's jitter floor. A live
+            # fixture measured 1.9x to 15.3x across six runs on one machine and
+            # crossed the threshold in two of them, so the container was not
+            # proving the comparison, it was rolling for it. See
+            # docs/field-notes.md, "A second row, much closer to the boundary".
             Verdict(
                 "readiness_fallback_below_resolution",
                 "INCONCLUSIVE",
                 "No in-flight path was configured and readiness is too fast "
                 "relative to jitter to hold a request open across the signal. Pass "
                 "--inflight-path with a slower representative endpoint.",
+                evidence=Evidence.DECISION_UNIT,
+                proof=(
+                    "tests/test_preconditions.py::"
+                    "test_readiness_fallback_below_jitter_resolution_is_inconclusive"
+                ),
             ),
             Verdict(
                 "shutdown_never_started",

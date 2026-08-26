@@ -1,0 +1,101 @@
+name: Publish
+
+# Tags only. There is no `workflow_dispatch` here on purpose: a dispatch takes a
+# ref and a set of inputs, which means a release could be cut from a branch, or
+# twice from the same commit, by anyone who can press the button. A tag is the
+# artefact being released and it is the only thing that starts this.
+#
+# No API token is stored. Publishing is authenticated by the OIDC identity
+# GitHub mints for this workflow, which PyPI is configured to trust for this
+# repository, workflow filename and environment. A leaked repository secret
+# cannot be used to publish because there is no such secret; a fork cannot
+# publish because the identity names the upstream repository.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      # The tag is what the release is named after and the metadata is what
+      # users install. If they disagree, the version people are told to expect
+      # is not the version that arrives, and PyPI will not let it be corrected
+      # afterwards — a released filename is permanent.
+      - name: The tag must be the version being published
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(uv run python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          echo "tag: $tagged   pyproject: $declared"
+          [ "$tagged" = "$declared" ] || {
+            echo "::error::tag $GITHUB_REF_NAME does not match version $declared in pyproject.toml"
+            exit 1
+          }
+
+      - name: Ruff
+        run: uv run ruff check src tests scripts
+
+      - name: Run the suite that needs no daemon
+        run: uv run pytest -q -m "not docker"
+
+      - name: Build the distribution
+        run: uv build
+
+      - name: The built metadata must be installable and correctly described
+        run: |
+          uv run --with twine --no-project twine check --strict dist/*
+
+      - name: Upload the distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Named here and named again in the PyPI trusted publisher. Both have to
+    # agree before a token is minted, so an environment protection rule is a
+    # second place a release can be stopped after the tag exists.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/preflightkit
+
+    permissions:
+      # The only permission trusted publishing needs, and the reason no secret
+      # is stored anywhere in this repository.
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download the distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

@@ -2358,8 +2358,47 @@ Chance two runs of one configuration answer differently:
 | `sweep-5ms-loaded` | 0.22 | 0.08 | 0.02 | 0.02 | 0.01 |
 | mean over 20 batches | 0.12 | 0.12 | 0.11 | 0.11 | 0.11 |
 
-One batch out of twenty improves. Splitting the variance of `log(ratio)` by
-source says why:
+One batch out of twenty improves.
+
+Asked as a count rather than as a rate, over every fallback run in the corpus —
+160 of them, across both hosts and both load conditions. Each recorded run is
+re-drawn through the estimator's own sampling distribution at each n, and the
+draw is compared against the answer that run actually gave:
+
+| jitter samples | runs expected to answer differently | of | share |
+| --- | --- | --- | --- |
+| 5 | 2.9 | 160 | 1.8% |
+| 10 | 1.9 | 160 | 1.2% |
+| 15 | 1.5 | 160 | 0.9% |
+| 20 | 1.1 | 160 | 0.7% |
+| 30 | 0.9 | 160 | 0.6% |
+
+Quadrupling the sample count buys 1.8 runs out of 160. The floor is not zero and
+never becomes zero, because 57 of the 160 sit within 5x to 20x of the ratio gate
+and most of them are held there by where the service is, not by how the jitter
+was estimated.
+
+Cross-host agreement — a macOS run and a Linux CI run of the same configuration
+reaching the same answer — does not move at all:
+
+| batch | n=5 | n=10 | n=15 | n=20 | n=30 |
+| --- | --- | --- | --- | --- | --- |
+| `fallback`, `slow`, `sweep-1ms`, `sweep-5ms`, `sweep-10ms` | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| `sweep-2ms` | 0.77 | 0.75 | 0.75 | 0.75 | 0.76 |
+| `sweep-3ms` | 0.01 | 0.00 | 0.00 | 0.00 | 0.00 |
+| mean over 7 batches | 0.82 | 0.82 | 0.82 | 0.82 | 0.82 |
+
+`sweep-3ms` is the clearest case in the whole study. The two hosts disagree about
+it essentially always, at every sample count, and more samples make it slightly
+worse rather than better. The hosts disagree because they are different: macOS
+measures p50 4.14ms at 0.50ms of jitter, a ratio of 8.3 that the gate refuses,
+while the Linux runner's own p50 for the same image clears it. Sharpening both
+measurements sharpens the disagreement. That is the host dependence the window
+floor documents, and no amount of sampling is going to remove it, because it is
+not noise.
+
+Splitting the variance of `log(ratio)` by source says the same thing from the
+other end:
 
 | | share of total |
 | --- | --- |

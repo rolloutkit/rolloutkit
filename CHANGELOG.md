@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-26
+
+First release. `Changed` and `Fixed` below are relative to the `0.1.0.dev0`
+working version, not to anything previously published.
+
 ### Added
 
 - Zero-configuration `test IMAGE --port PORT --ready-url PATH` workflow.
@@ -76,3 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - In-flight requests are confirmed on the socket before SIGTERM is sent.
 - Completion evidence includes both counts and `completion_rate`.
+
+[Unreleased]: https://github.com/preflightkit/preflightkit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/preflightkit/preflightkit/releases/tag/v0.1.0

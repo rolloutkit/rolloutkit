@@ -30,6 +30,5 @@ contracts:
     budget: 15s
 
 timeouts:
-  overall: 120s
   startup: 30s
   shutdown: 45s

@@ -382,6 +382,71 @@ def test_the_shipped_startup_defaults_leave_the_budget_reachable() -> None:
     assert config.contracts.startup.budget < config.timeouts.startup
 
 
+def _overall_config(value: str = "120s") -> str:
+    return (
+        "version: 1\n"
+        "target: {image: fixture, port: 8000}\n"
+        f"timeouts: {{startup: 90s, shutdown: 45s, overall: {value}}}\n"
+    )
+
+
+def test_a_removed_setting_is_named_rather_than_called_a_typo(tmp_path: Path) -> None:
+    """`timeouts.overall` was in the schema and bounded nothing; now it is gone.
+
+    `extra="forbid"` already refuses it, but as "Extra inputs are not
+    permitted", which sends a reader looking for the spelling mistake they did
+    not make. A setting that shipped and was taken out again has to say so.
+    """
+    path = tmp_path / "overall.yaml"
+    path.write_text(_overall_config())
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "config error" in result.output
+    assert "timeouts.overall" in result.output
+    assert __version__ in result.output, "the message must name the version"
+    assert "docs/v0.2.md" in result.output, "the message must name where it went"
+    assert "Extra inputs are not permitted" not in result.output
+
+
+def test_a_removed_setting_stops_test_too(tmp_path: Path) -> None:
+    """Rejecting it in `validate` alone would still let `test` start a container."""
+    path = tmp_path / "overall.yaml"
+    path.write_text(_overall_config("240s"))
+
+    result = runner.invoke(app, ["test", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "timeouts.overall" in result.output
+
+
+def test_the_removed_setting_is_out_of_the_schema(tmp_path: Path) -> None:
+    """The rejection is the message, not the mechanism.
+
+    If the field came back to `Timeouts` the loader would go on printing a
+    removal notice for a setting that exists, which is worse than either state
+    on its own.
+    """
+    assert "overall" not in Config.model_fields["timeouts"].annotation.model_fields
+
+
+def test_an_actual_typo_still_reads_as_a_typo(tmp_path: Path) -> None:
+    """The removal notice must not become the answer to every unknown key."""
+    path = tmp_path / "typo.yaml"
+    path.write_text(
+        "version: 1\n"
+        "target: {image: fixture, port: 8000}\n"
+        "timeouts: {startup: 90s, shutdwn: 45s}\n"
+    )
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "shutdwn" in result.output
+    assert "docs/v0.2.md" not in result.output
+
+
 @pytest.mark.parametrize("contract_id", [f"SP{number:03}" for number in range(1, 7)])
 def test_explain_documents_every_contract(contract_id: str) -> None:
     result = runner.invoke(app, ["explain", contract_id])

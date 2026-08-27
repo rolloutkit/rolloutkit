@@ -21,6 +21,5 @@ contracts:
     latency_budget: 500ms
 
 timeouts:
-  overall: 120s
   startup: 30s
   shutdown: 45s

@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from preflightkit import __version__
 from preflightkit.config.models import Config, DrainStrategy
 from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
 
@@ -218,6 +219,7 @@ def load_config(
             "(there is no safe default to guess here)"
         )
 
+    _reject_removed_settings(raw)
     try:
         config = Config.model_validate(raw)
     except ValidationError as exc:
@@ -230,6 +232,39 @@ def load_config(
 #: How many accept-probe samples a declared window has to span before the probe
 #: can tell the window apart from its own sampling interval.
 MIN_WINDOW_PROBE_SAMPLES = 20
+
+
+#: Settings that were declared in a shipped model and have been taken out
+#: again, mapped to what a reader needs to hear. `extra="forbid"` already stops
+#: them, but "Extra inputs are not permitted" reads as a typo; a setting that
+#: was in the schema and is now gone deserves to be named as such.
+REMOVED_SETTINGS: dict[tuple[str, ...], str] = {
+    ("timeouts", "overall"): (
+        "It was declared but enforced nowhere, so no run was ever bounded by "
+        "it. Making it work is new behaviour, and v0.1 semantics are frozen; "
+        "leaving it in the schema would be a second release of a setting that "
+        "does nothing. Deferred to v0.2 — see docs/v0.2.md.\n"
+        "Delete the line. Startup and shutdown are bounded by timeouts.startup "
+        "and timeouts.shutdown, which are enforced."
+    ),
+}
+
+
+def _reject_removed_settings(raw: dict[str, Any]) -> None:
+    """Name a setting that this version no longer has, instead of ignoring it."""
+    for path, explanation in REMOVED_SETTINGS.items():
+        section: Any = raw
+        for key in path[:-1]:
+            if not isinstance(section, dict):
+                break
+            section = section.get(key)
+        else:
+            if isinstance(section, dict) and path[-1] in section:
+                dotted = ".".join(path)
+                raise ConfigError(
+                    f"{dotted} is not a setting in preflightkit "
+                    f"{__version__}.\n{explanation}"
+                )
 
 
 def _reject_unmeasurable_drain_window(config: Config) -> None:

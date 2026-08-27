@@ -36,6 +36,5 @@ contracts:
     # to guess at, and guessing is what the baseline exists to replace.
 
 timeouts:
-  overall: 180s
   startup: 30s
   shutdown: 60s

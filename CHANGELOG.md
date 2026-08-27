@@ -92,6 +92,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to move together because `publish.yml` uploads the distribution in one job and
   downloads it in the next.
 
+### Removed
+
+- `timeouts.overall`. It shipped in the schema at a default of 120s, was
+  written into every fixture configuration, and was read by nothing: no phase
+  compared against it, so a run that took ten minutes crossed it without a
+  word. Implementing it is new behaviour and v0.1 semantics are frozen, and
+  leaving it in place would release a setting that does nothing for a second
+  time. A configuration that still sets it is a configuration error, exit 2,
+  from `test` as well as `validate`, with a message naming the setting, this
+  version, and the two timeouts that are enforced — `extra="forbid"` would
+  already have refused the key, but as "Extra inputs are not permitted", which
+  reads as a typo rather than as a removal. What a real implementation would
+  have to decide first is in `docs/v0.2.md`.
+
 ### Fixed
 
 - Measured durations are no longer truncated to whole milliseconds on their way

@@ -33,6 +33,5 @@ contracts:
     # both sources are exercised by the matrix.
 
 timeouts:
-  overall: 120s
   startup: 30s
   shutdown: 45s

@@ -176,7 +176,12 @@ class Contracts(Strict):
 
 
 class Timeouts(Strict):
-    overall: Duration = 120_000
+    # There is no `overall` here on purpose. It was declared through v0.1's
+    # development and enforced nowhere, so setting it changed nothing; giving it
+    # a meaning now would be new behaviour against frozen semantics. `loader`
+    # rejects a configuration that still names it rather than ignoring it a
+    # second time. See docs/v0.2.md.
+
     #: The hard wall, not a contract: crossing it aborts the run with exit 3 and
     #: nothing measured, where crossing contracts.startup.budget only warns. It
     #: is therefore sized off the slowest legitimate startup this project has

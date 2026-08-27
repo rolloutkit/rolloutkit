@@ -34,6 +34,5 @@ contracts:
     concurrent: 10
 
 timeouts:
-  overall: 120s
   startup: 30s
   shutdown: 45s

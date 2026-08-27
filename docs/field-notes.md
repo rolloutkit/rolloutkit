@@ -2845,9 +2845,10 @@ A busier one is, and it is the same machine.
 ### The choice
 
 3x over 26180.60ms is 78.5s. Rounded up: **90s**, six times the 15s startup
-budget, and clear of `timeouts.overall` (120s, which nothing enforces — see
-below). The three-times rule is not a law; it is the smallest multiple that
-keeps the worst reading on record from being one bad pull away from the wall.
+budget, and clear of `timeouts.overall` (120s, which nothing enforced — see
+below, and the addendum there). The three-times rule is not a law; it is the
+smallest multiple that keeps the worst reading on record from being one bad
+pull away from the wall.
 
 `contracts.startup.budget` does not move. It stays at 15s and stays a WARN: a
 budget is a claim about the target, and timing thresholds on noisy runners warn
@@ -2864,6 +2865,19 @@ named, from `test` as well as `validate`, before anything is pulled.
 
 `timeouts.overall` is a separate matter and is left alone: it is declared in
 `Timeouts` and referenced nowhere else in `src/`. It bounds nothing today.
+
+**Addendum, later the same day.** "Left alone" did not survive the day. A
+setting that bounds nothing is not neutral to ship: it is a promise on the
+page that the run does not keep, and shipping it a second time would be the
+release where it became load-bearing by reputation rather than by code.
+Giving it a body inside v0.1 is new behaviour against frozen semantics, so it
+was removed from `Timeouts` instead, and `load_config` now refuses a
+configuration that still names it — exit 2, saying the setting is not in this
+version rather than letting `extra="forbid"` call it a typo. The reasoning and
+what a real implementation would have to decide are in `docs/v0.2.md`,
+"`timeouts.overall` was a setting that bounded nothing". The 90s figure above
+is unaffected: it was chosen against the 26180.60ms reading, and the clearance
+over 120s was an observation about the old field, not a constraint on it.
 
 ### How these were taken
 

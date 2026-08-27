@@ -53,6 +53,5 @@ contracts:
     sigterm_after: 300ms
 
 timeouts:
-  overall: 240s
   startup: 120s
   shutdown: 60s

@@ -5,46 +5,54 @@ measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_SK3DXANYYE
+preflightkit 0.1.0   run pfk_EW6SZLUNFE
 Target: service-b:latest
 Profile: kubernetes, grace 30s, preStop sleep 5s, drain prestop -> shutdown budget 25s
 
 STARTUP
-  startup resolution                          173ms
-  TCP :8000 open                              6.39s
-  GET /healthz/ -> 200                        6.85s
+  startup resolution                          172ms
+  TCP :8000 open                              6.03s
+  GET /healthz/ -> 200                        6.46s
   PID 1 signal disposition                    gunicorn, SIGTERM handler installed
 
 BASELINE (before the signal)
   GET /api/subjects/ x25                      25/25 ok -> 200
-  request duration p50 / p90                  113ms / 164ms
+  request duration p50 / p90                  101ms / 157ms
   sigterm_after (from config)                 300ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            -254ms (±50ms)
+  T2  last new connection accepted            -248ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 6.85s (budget 1m0s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0ms, max 99ms)
+  SP001 startup                PASS   ready in 6.46s (budget 1m0s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.56ms, max 
+99ms)
   SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
-288ms
+284ms
+        - The entrypoint is shell-form (/bin/sh -c ...). The shell becomes PID 1 and may not forward
+SIGTERM to the application. Use exec-form (JSON array) or `exec` the process.
+        - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
+the measurement would describe tini, not your app.
   SP004 drain-window           PASS   not_applicable: preStop owns routing removal, so the 
 new-connection probe stops at T0 and listener timing is evidence only
-  SP005 inflight-completion    FAIL   2/66 completed, 64 destroyed
-        request #34 reset_before_response during awaiting_response +62ms
-        request #35 reset_before_response during awaiting_response +62ms
-        request #39 reset_before_response during awaiting_response +62ms
-        request #40 reset_before_response during awaiting_response +62ms
-        request #41 reset_before_response during awaiting_response +62ms
-        ... and 59 more destroyed requests (--format json lists every one)
-  SP006 shutdown-deadline      PASS   exited in 288ms of 25s
+        - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
+  SP005 inflight-completion    FAIL   4/58 completed, 54 destroyed
+        request #41 reset_before_response during awaiting_response +65ms
+        request #46 reset_before_response during awaiting_response +64ms
+        request #48 reset_before_response during awaiting_response +65ms
+        request #50 reset_before_response during awaiting_response +65ms
+        request #51 reset_before_response during awaiting_response +64ms
+        ... and 49 more destroyed requests (--format json lists every one)
+  SP006 shutdown-deadline      PASS   exited in 284ms of 25s
+        - Budget is terminationGracePeriod (30s) minus preStop (5s). The hook is spent from the same
+window.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.93 | probe sidecar | probe-path jitter 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.60 | probe sidecar | probe-path jitter 
 ~0.2ms | teardown not_calibrated
   Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (289ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 296ms.
+  T4 is the daemon's own kill->die pair (284ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 291ms.
 
 Result: 1 FAIL
 report-only: exit 0. Use --fail-on error to block CI.

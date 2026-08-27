@@ -35,6 +35,71 @@ jobs:
       - name: Run the suite that needs no daemon
         run: uv run pytest -q -m "not docker"
 
+  wheel:
+    name: Wheel install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The repository is not the product. `uv sync` installs the lockfile, which
+    # carries packages nobody who runs `pip install preflightkit` receives, and
+    # a dependency that had quietly become optional went on being satisfied here
+    # long after it stopped being satisfied anywhere else. Every check above this
+    # one runs against a checkout, so none of them could see it.
+    needs: fast
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Build the distribution
+        run: uv build --wheel
+
+      # Outside the checkout and built from the wheel alone, so the resolver
+      # answers the question a user's machine asks: what does `preflightkit`
+      # declare, and what does that actually pull in today.
+      - name: Install the wheel into a venv with nothing else in it
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/clean"
+          uv pip install --python "$RUNNER_TEMP/clean/bin/python" dist/*.whl
+
+      - name: What a user gets
+        run: uv pip list --python "$RUNNER_TEMP/clean/bin/python"
+
+      - name: Build a fixture image and cache the runtime images
+        run: |
+          docker build \
+            -f fixtures/stdlib-http/Dockerfile.wrapper \
+            -t pfk-fixture-wrapper \
+            fixtures/stdlib-http
+          docker pull busybox:latest
+          docker pull python:3.12-slim
+
+      # A real prediction, not `--version`: the payload is assembled at the
+      # moment the sidecar starts, so nothing short of starting one proves it
+      # can be assembled.
+      - name: Measure a fixture with the installed wheel
+        run: |
+          "$RUNNER_TEMP/clean/bin/preflightkit" test \
+            -c fixtures/stdlib-http/default-disposition.yaml \
+            --format json > run.json
+
+      - name: The sidecar has to have started
+        run: python3 scripts/assert_sidecar.py run.json
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: run.json
+          if-no-files-found: warn
+          retention-days: 30
+
   docker:
     name: Docker matrix
     runs-on: ubuntu-latest

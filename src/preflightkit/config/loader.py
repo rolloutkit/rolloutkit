@@ -223,6 +223,7 @@ def load_config(
     except ValidationError as exc:
         raise ConfigError(_render_validation_error(exc)) from exc
     _reject_unmeasurable_drain_window(config)
+    _reject_unreachable_startup_budget(config)
     return config
 
 
@@ -258,6 +259,33 @@ def _reject_unmeasurable_drain_window(config: Config) -> None:
         "common Kubernetes value — or declare a strategy that does not depend "
         "on listener timing: prestop delegates the gap to the platform, none "
         "reports it as uncovered."
+    )
+
+
+def _reject_unreachable_startup_budget(config: Config) -> None:
+    """Refuse a startup budget the run can never reach a verdict about.
+
+    contracts.startup.budget is a threshold SP001 warns on; timeouts.startup is
+    the wall the run dies against, with exit 3 and nothing measured. Order them
+    the wrong way round and the warning becomes unreachable code: a container
+    slower than the budget is also past the wall, so it aborts as an
+    infrastructure error and SP001's over_budget branch never runs. Both numbers
+    are in the config, so this is answerable before anything starts.
+    """
+    budget = config.contracts.startup.budget
+    wall = config.timeouts.startup
+    if budget < wall:
+        return
+    raise ConfigError(
+        f"contracts.startup.budget is {budget}ms and timeouts.startup is "
+        f"{wall}ms: the budget must be shorter than the timeout.\n"
+        "The budget is a threshold SP001 warns about; the timeout is the wall "
+        "the run aborts against with exit 3 and nothing measured. With the "
+        "budget at or past the wall, a container slow enough to exceed the "
+        "budget has already been killed by the timeout, so SP001 can never "
+        "report it.\n"
+        f"Lower contracts.startup.budget below {wall}ms, or raise "
+        f"timeouts.startup above {budget}ms."
     )
 
 

@@ -177,7 +177,17 @@ class Contracts(Strict):
 
 class Timeouts(Strict):
     overall: Duration = 120_000
-    startup: Duration = 30_000
+    #: The hard wall, not a contract: crossing it aborts the run with exit 3 and
+    #: nothing measured, where crossing contracts.startup.budget only warns. It
+    #: is therefore sized off the slowest legitimate startup this project has
+    #: observed, with 3x headroom: 26180.60ms for service-a against cold
+    #: ephemeral dependencies on native Linux (docs/field-notes.md), which the
+    #: old 30s wall cleared by 1.15x — close enough that one cold dependency
+    #: pull turns a measurable run into an infrastructure error. 3x of 26.18s
+    #: is 78.5s, rounded up to 90s. For scale at the other end: the stdlib
+    #: fixture reads 211.57ms on the 2-core CI runner, and service-b's Django
+    #: image under a 2-CPU quota reads 6.87-7.63s.
+    startup: Duration = 90_000
     shutdown: Duration = 45_000
 
 

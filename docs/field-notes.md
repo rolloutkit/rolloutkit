@@ -2800,3 +2800,77 @@ The honest specimen and its configs were built in a scratch directory and are
 not in the repository; what is in the repository is `fixtures/backlog-reset/`,
 whose eight-run batch was taken with `preflightkit test -c
 fixtures/backlog-reset/after-window.yaml --format json` on H1.
+
+## The startup wall, and the measurement that chose it (2026-08-27; preflightkit commit: eb164e9dd7db8512ca4b1d96376d3b536409fdbf)
+
+`timeouts.startup` was 30s and had never been measured against anything. It is
+not a threshold — crossing it aborts the run with exit 3 and nothing measured,
+where crossing `contracts.startup.budget` only warns — so the question is not
+what a healthy container costs but what the slowest legitimate one costs, and
+how much room is left above it.
+
+### The number the corpus already had
+
+The slowest legitimate startup in this project's records is in this file, in the
+`service-a` section: **26180.60ms** to readiness, against fresh ephemeral
+dependencies on native Linux, with `port_proxy_likely: false` and a direct
+private container endpoint. Nothing about that run was defective; it was a cold
+image and cold dependencies, which is what a first CI run on a clean runner is.
+
+The old 30s wall cleared it by **1.15x**. One more cold dependency in that chain
+and a measurable run becomes an infrastructure error — the failure mode that
+tells you nothing about the target.
+
+### The 2-core reading, and what it falsified
+
+The `Wheel install` CI job runs a real prediction on the 2-core runner
+(`Linux 6.17.0-1022-azure / docker 28.0.4 / 2cpu`, load 1.15). The stdlib
+fixture reaches readiness there in **211.57ms** — two orders of magnitude under
+the wall, and no constraint on it at all.
+
+Django was the image the concern was actually about, so it was measured under a
+CPU quota on H1: `docker run --cpus 2` against `service-b:latest`, polling
+`/healthz/` for a 200 on `monotonic_ns`. Five runs: **6.87 / 6.95 / 6.96 / 7.34
+/ 7.63s**.
+
+The same image through preflightkit on the same host with no quota at all reads
+**7.16 / 10.05 / 11.89s**. The constrained runs are the *faster* ones, and the
+1.66x spread inside the unconstrained set is wider than the gap between the
+sets. Core count is not what dominates this image's startup; the run's own
+concurrent load is — the sidecar coming up, the probe traffic, whatever else is
+on the host. That is worth saying plainly because it kills the shape of the
+original worry: "a slower machine" is not the axis this number has to survive.
+A busier one is, and it is the same machine.
+
+### The choice
+
+3x over 26180.60ms is 78.5s. Rounded up: **90s**, six times the 15s startup
+budget, and clear of `timeouts.overall` (120s, which nothing enforces — see
+below). The three-times rule is not a law; it is the smallest multiple that
+keeps the worst reading on record from being one bad pull away from the wall.
+
+`contracts.startup.budget` does not move. It stays at 15s and stays a WARN: a
+budget is a claim about the target, and timing thresholds on noisy runners warn
+by design.
+
+### The constraint that made this safe to change
+
+Raising the wall opens a way to configure the pair so SP001 can never speak: set
+`budget` at or past `timeouts.startup` and every container slow enough to exceed
+the budget has already been killed by the timeout, so `over_budget` is
+unreachable code and the run reports exit 3 in its place. The ordering was
+documented and unenforced. `load_config` now rejects it — exit 2, both numbers
+named, from `test` as well as `validate`, before anything is pulled.
+
+`timeouts.overall` is a separate matter and is left alone: it is declared in
+`Timeouts` and referenced nowhere else in `src/`. It bounds nothing today.
+
+### How these were taken
+
+The 26180.60ms figure is from this file, not re-measured. The 211.57ms is from
+the `Wheel install` job's own report on the run of commit `eb164e9`. The Django
+readings were taken on H1 (`Darwin 25.5.0 / docker 29.7.2 / 11cpu`) with a
+throwaway script that starts the container directly and polls readiness — no
+preflightkit in the path, so the sidecar and probe cost are excluded by
+construction; the three-run comparison set is preflightkit's own
+`startup resolution` line from the readme-material captures.

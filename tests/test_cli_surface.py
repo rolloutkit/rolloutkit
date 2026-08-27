@@ -330,6 +330,58 @@ def test_the_window_floor_binds_only_the_strategy_that_measures_it(
         assert result.exit_code == 0, f"{strategy}: {result.output}"
 
 
+def _budget_config(budget: str, wall: str) -> str:
+    return (
+        "version: 1\n"
+        "target: {image: fixture, port: 8000}\n"
+        f"contracts: {{startup: {{budget: {budget}}}}}\n"
+        f"timeouts: {{startup: {wall}}}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("budget", "wall"),
+    [("90s", "90s"), ("120s", "90s"), ("31s", "30s")],
+)
+def test_a_startup_budget_past_the_timeout_is_rejected(
+    tmp_path: Path, budget: str, wall: str
+) -> None:
+    """SP001's over_budget branch has to stay reachable.
+
+    The budget only warns; the timeout aborts the run with exit 3 and nothing
+    measured. Ordered the wrong way round, every container slow enough to
+    exceed the budget is killed by the timeout first, so the warning is dead
+    code and the run reports an infrastructure error in its place.
+    """
+    path = tmp_path / "budget.yaml"
+    path.write_text(_budget_config(budget, wall))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "config error" in result.output
+    assert "contracts.startup.budget" in result.output
+    assert "timeouts.startup" in result.output
+
+
+def test_a_startup_budget_past_the_timeout_stops_test_too(tmp_path: Path) -> None:
+    """Rejecting it in `validate` alone would still let `test` start a container."""
+    path = tmp_path / "budget.yaml"
+    path.write_text(_budget_config("90s", "90s"))
+
+    result = runner.invoke(app, ["test", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "contracts.startup.budget" in result.output
+
+
+def test_the_shipped_startup_defaults_leave_the_budget_reachable() -> None:
+    """The defaults are themselves an instance of the rule."""
+    config = Config(target=Target(image="fixture", port=8000))
+
+    assert config.contracts.startup.budget < config.timeouts.startup
+
+
 @pytest.mark.parametrize("contract_id", [f"SP{number:03}" for number in range(1, 7)])
 def test_explain_documents_every_contract(contract_id: str) -> None:
     result = runner.invoke(app, ["explain", contract_id])

@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shell-form rows that needed them. A status and a branch cannot express a note
   printed next to a measurement that contradicts it — both rows reach the branch
   they always reached.
+- A `Wheel install` CI job, and `scripts/assert_sidecar.py` behind it: build the
+  wheel, install it into a venv outside the checkout with nothing else in it,
+  measure a fixture with it, and fail unless the report says
+  `probe_location: sidecar`. Every other check runs against a repository
+  checkout, whose lockfile carries packages nobody who runs
+  `pip install preflightkit` receives, so none of them could see the sniffio
+  defect below — for one release, on every machine.
+- SP003's static reading reads the effective command: `target.command` when the
+  configuration sets one, the image's `Cmd` when it does not, with `cmd_source`
+  in the evidence naming which of the two it was. Docker replaces the image
+  `CMD` with the container's, so a configuration writing
+  `command: ["/bin/sh", "-c", "…"]` over an exec-form image put a shell at PID 1
+  that the reading never saw. The note names the configuration when that is
+  where the shell came from, and sends a reader to the file that contains the
+  string rather than to a Dockerfile that does not. Advisory: no verdict moves.
 
 ### Changed
 
@@ -40,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unsampled interval, down from 318 characters. The probe interval, the
   classification rule and the attempt list stay in `explain SP004` and
   `--format json`.
+- A probe payload that cannot be assembled is now `ProbePackagingError` and
+  exit code 3, raised before any image is pulled, instead of falling back to the
+  host. The two reasons a sidecar does not start are not equal. Rootless Docker
+  or a container IP this machine cannot route to is a fact about the host, and
+  measuring from the host is the right answer to it: it costs precision, the
+  report says so, and another machine would not have needed it. A module
+  preflightkit ships against being missing is a broken installation, which no
+  fallback repairs and which the next run would repeat — publishing a
+  permanently degraded measurement as though the environment had asked for it.
 - CI pins `actions/upload-artifact` at v7.0.1 and `actions/download-artifact`
   at v8.0.1. Both were still on the v4 line, which runs on Node 20; the pair has
   to move together because `publish.yml` uploads the distribution in one job and
@@ -57,6 +81,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepted connection and T0, not from every attempt after it. Refusals from a
   process that has already exited described the exit, and were reporting a
   listener as gone before a signal it was still serving through.
+- The traffic probe no longer requires `sniffio` to build its payload, and a
+  clean installation starts a sidecar again. anyio dropped sniffio as a
+  requirement and imports it under `try`/`except ImportError`, assuming asyncio
+  without it — the backend the probe runs on. A clean
+  `pip install preflightkit` therefore had none, failed to assemble the payload
+  on every run it would ever make, and measured through a published port
+  instead, silently: `TCP :8000 open` inconclusive, SP004 unable to measure the
+  accept window, and nothing saying why. The repository `.venv` still carried
+  sniffio through trio, which is why no check here saw it.
 - SP003 withholds its shell-form note when the run measured PID 1 to be the
   application with a SIGTERM handler installed. `sh -c "exec gunicorn ..."` is
   shell-form to `docker inspect` and sound in fact, and the report was printing

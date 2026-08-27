@@ -5,7 +5,7 @@ for a reader: these are captured outputs, kept verbatim, so that whoever writes
 the README quotes a real run instead of typing a plausible-looking one.
 
 Every `.txt` file starts with the command that produced it. All of them were
-captured on 2026-08-26 from preflightkit 0.1.0, at `COLUMNS=100`, with stdout
+captured on 2026-08-27 from preflightkit 0.1.0, at `COLUMNS=100`, with stdout
 and stderr merged in the order a terminal would show them — the five progress
 lines come from stderr, the report from stdout.
 
@@ -39,7 +39,7 @@ not agree:
 | contract | `in_app`, 5s window | `prestop`, 5s sleep |
 | --- | --- | --- |
 | SP004 drain-window | **INCONCLUSIVE** — `accept_window_unmeasured`, the window was never observed | **PASS** — `prestop_not_applicable`, the hook owns routing removal |
-| SP005 inflight-completion | FAIL — 4/66 completed, 62 destroyed | FAIL — 2/66 completed, 64 destroyed |
+| SP005 inflight-completion | FAIL — 2/84 completed, 82 destroyed | FAIL — 2/72 completed, 70 destroyed |
 
 SP004 is the row that moves, and what it moves between is the point. Declaring
 `in_app` is claiming the application keeps accepting new connections for the
@@ -48,19 +48,21 @@ full 5s window, so the tool has to time when the listener stopped; declaring
 listener behaviour stops being a question.
 
 Under `in_app` the answer is that there is no answer. `T2 last new connection
-accepted -172ms` is a negative window: the last connection the probe got
+accepted -181ms` is a negative window: the last connection the probe got
 accepted predates the signal, so no accept after T0 was ever observed. Rather
-than report that as a listener that "closed -172ms after T0" — a stopwatch
+than report that as a listener that "closed -181ms after T0" — a stopwatch
 reading nobody took — SP004 declines, keeps the raw number in evidence, and
 names the mechanism the evidence supports:
 
 ```
-SP004 drain-window  INCONCLUSIVE  the probe was still waiting on its last accepted
-connection when the signal landed — accept window not measured: the last connection
-the probe got accepted was 172ms before T0, further back than the 50ms probe
-interval, so what the listener did after the signal was never observed. The raw
-accept_window_ms is in evidence
+SP004 drain-window  INCONCLUSIVE  accept window not measured: the probe was still busy
+on an earlier connection for the 181ms before T0 (`explain SP004` for why, --format
+json for the attempts)
 ```
+
+One sentence, naming the mechanism and the interval nothing sampled. The probe
+interval, the rule that classified it and the attempt list are a command and a
+flag away rather than in the summary line.
 
 That mechanism is worth a README paragraph of its own, because it is this
 configuration doing it to itself. The accept probe is serial: it opens one
@@ -125,8 +127,10 @@ that shuts down correctly, where the only findings are the two the zero-config
 path structurally cannot answer. SP004 warns rather than fails, because with no
 configuration there is no drain claim to hold the image to. SP005 comes back
 INCONCLUSIVE: with no `--inflight-path`, readiness is the fallback target, and
-this fixture's readiness answers in 0.3ms against 0.1ms of probe-path jitter —
-a ratio of 2.0x where 10x is required. The output names the ratio and the fix.
+this fixture's readiness answers in 0.6ms against 0.6ms of probe-path jitter —
+a ratio of 1.0x where 10x is required. Both readings are per-run properties of
+the host, so the ratio in the file is the one that run measured, not a constant.
+The output names it and the fix.
 
 That is the honest shape of the zero-config path: a real measurement of most of
 the lifecycle, findings that do not need a configuration file to be real, and a

@@ -38,9 +38,16 @@ Verdicts (branch, by drain strategy):
       The listener stopped accepting before the declared window ended, while routing is still       
       expected to deliver new connections.                                                          
     FAIL         accept_then_reset
-      A connection opened after T0 completed its handshake and was then reset with no response at   
-      all. Worse than a refusal: the caller already believed it was connected. Overrides the window 
-      verdict.                                                                                      
+      A connection opened while the declared window was still open completed its handshake and was  
+      then reset with no response at all. Worse than a refusal: the caller already believed it was  
+      connected. Overrides the window verdict. Only connections opened inside the window count — the
+      branch is decided by started_offset_ms, published for every reset in evidence, not by when the
+      handshake finished. A reset whose connection was opened after the window is reported as       
+      evidence and changes no verdict: closing a listening socket resets whatever the kernel has    
+      already handshaken into its accept queue, and by then the application has served the interval 
+      it promised and routing has withdrawn the endpoint. Judging by the handshake instead would    
+      fail a target for its accept latency, since a busy worker finishes a handshake the kernel     
+      completed some milliseconds earlier.                                                          
     INCONCLUSIVE shutdown_never_started
       No shutdown reaction was observed, so there is no drain transition to measure. See SP003      
       first.                                                                                        
@@ -63,6 +70,13 @@ Verdicts (branch, by drain strategy):
     INCONCLUSIVE budget_below_teardown_floor
       The shutdown budget is inside the measured teardown envelope, so no timing claim about this   
       run can be separated from Docker's own teardown cost.                                         
+Precedence — several of these hold on the same run, so they are asked in this order and the first to
+answer is the verdict:
+  1. accept_then_reset (FAIL)
+  2. in_app_listener_closed_early (FAIL)
+  3. in_app_readiness_not_signaled (WARN)
+  4. in_app_thin_margin (WARN)
+  5. in_app_covered (PASS)
 Why it matters: Endpoints removal is asynchronous: after SIGTERM the load balancer keeps opening new
 connections for as long as the propagation takes. If the listener has already closed, those arrive 
 at a closed or resetting socket and reach the caller as 502s and connection resets — during a deploy
@@ -77,4 +91,9 @@ First step after FAIL: Decide which strategy the deployment actually uses before
 numbers. For platform-owned draining add a preStop sleep that covers propagation; for 
 application-owned draining set --drain in_app and keep the listener and readiness open for the 
 declared window. accept_then_reset is different: the socket is being accepted and dropped, which is 
-usually a worker pool closing its listener while connections sit in the backlog.
+usually a worker pool closing its listener while connections sit in the backlog. Read 
+started_offset_ms against in_app_window_ms before treating it as one — both are in evidence. Inside 
+the window the caller was promised an answer and got a reset instead, and that is the defect. After 
+the window the same reset is the ordinary cost of closing a listening socket, and every well-behaved
+server pays it; the fix there, if you want one, is not in the application but in the window you 
+declared.

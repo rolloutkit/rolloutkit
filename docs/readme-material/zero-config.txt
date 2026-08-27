@@ -5,47 +5,52 @@ measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_KBGBAUCO5U
+preflightkit 0.1.0   run pfk_KE6GABJQZ4
 Target: pfk-go-graceful
 Profile: kubernetes, grace 30s, drain none -> shutdown budget 30s
 
 STARTUP
-  startup resolution                          182ms
-  TCP :8000 open                              0ms
-  GET /ready -> 200                           1ms
+  startup resolution                          233ms
+  TCP :8000 open                              3.41ms
+  GET /ready -> 200                           5.75ms
   PID 1 signal disposition                    server, SIGTERM handler installed
 
 BASELINE (before the signal)
   GET /ready x25                              25/25 ok -> 200
-  request duration p50 / p90                  5ms / 6ms
+  request duration p50 / p90                  8.49ms / 10ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            -20ms (±50ms)
+  T2  last new connection accepted            -35ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 1ms (budget 15s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0ms, max 0ms)
+  SP001 startup                PASS   ready in 5.75ms (budget 15s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.64ms, max 
+0.88ms)
   SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
-63ms
+59ms
+        - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
+the measurement would describe tini, not your app.
   SP004 drain-window           WARN   no drain mechanism covers routing propagation; production 
 rollouts can send traffic to a process that is shutting down. Add a preStop sleep, or test 
 application-owned draining with --drain in_app
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
-  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.3ms, jitter 0.1ms, ratio 2.0x is below 
+  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.6ms, jitter 0.6ms, ratio 1.0x is below 
 the required 10x; the in-flight window cannot be distinguished from measurement noise — point 
 --inflight-path at a slower endpoint
         - 0 of 0 requests finished before the signal. The window closed early: lower 
 contracts.inflight.sigterm_after, or leave it unset and let it be derived from the baseline p50.
         - The experiment and traffic measurement completed, but this unresolved candidate was not 
 published because its precondition did not hold.
-  SP006 shutdown-deadline      PASS   exited in 63ms of 30s
+  SP006 shutdown-deadline      PASS   exited in 59ms of 30s
+        - Budget is terminationGracePeriod (30s) minus preStop (0ms). The hook is spent from the 
+same window.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 3.48 | probe sidecar | probe-path jitter 
-~0.1ms | teardown not_calibrated
-  Timestamps come from monotonic_ns; application-facing observations are precise to about 0.1ms at 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 5.25 | probe sidecar | probe-path jitter 
+~0.6ms | teardown not_calibrated
+  Timestamps come from monotonic_ns; application-facing observations are precise to about 0.6ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (64ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 78ms.
+  T4 is the daemon's own kill->die pair (59ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 69ms.
 
 Result: 1 WARN
 Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 

@@ -194,14 +194,40 @@ def _is_shell_form(argv: list[str] | None) -> bool:
     return bool(argv) and len(argv) >= 3 and argv[0] in _SHELLS and argv[1] == "-c"
 
 
+def _effective_cmd(report: RunReport) -> tuple[list[str] | None, str]:
+    """The command the container was actually given, not the image's alone.
+
+    `target.command` is sent as the container's `Cmd`, which replaces the
+    image's and leaves any ENTRYPOINT in front of it — Docker's own rule, and
+    the reason the ENTRYPOINT above is read from the image either way. The
+    static reading used to skip the override entirely, so a configuration that
+    wrote `command: ["/bin/sh", "-c", "python app.py"]` over an exec-form image
+    got no shell-form note while `sh` genuinely held PID 1 and the application
+    never saw the signal.
+
+    That is the mirror of the defect this file fixed on the other side. One
+    printed a warning about a shell the run had measured away; this one stayed
+    quiet about a shell the configuration had just put there. Both come from
+    reading one source and calling it the answer.
+    """
+    override = report.config.target.command
+    if override:
+        return list(override), "config"
+    return report.image_config.get("Cmd"), "image"
+
+
 def _static_evidence(report: RunReport) -> dict[str, Any]:
     config = report.image_config
     entrypoint = config.get("Entrypoint")
-    cmd = config.get("Cmd")
+    cmd, cmd_source = _effective_cmd(report)
     return {
         "stop_signal": config.get("StopSignal") or "SIGTERM (default)",
         "entrypoint": entrypoint,
         "cmd": cmd,
+        # Which of the two the `cmd` above came from. Without it a reader cannot
+        # tell an image that ships a shell-form command from a configuration
+        # that supplied one, and those call for different fixes.
+        "cmd_source": cmd_source,
         "entrypoint_shell_form": _is_shell_form(entrypoint),
         "cmd_shell_form": _is_shell_form(cmd) and not entrypoint,
         "docker_init_injected": False,
@@ -303,8 +329,16 @@ def _static_notes(report: RunReport, static: dict[str, Any]) -> list[str]:
     if (
         static["entrypoint_shell_form"] or static["cmd_shell_form"]
     ) and not _shell_execed_away(report):
+        # Name the source. "The entrypoint is shell-form" sends a reader to a
+        # Dockerfile that does not contain the string, when the shell came from
+        # the `command:` three lines up in their own configuration.
+        subject = (
+            "The command in your configuration is shell-form"
+            if static["cmd_shell_form"] and static["cmd_source"] == "config"
+            else "The entrypoint is shell-form"
+        )
         notes.append(
-            "The entrypoint is shell-form (/bin/sh -c ...). The shell becomes "
+            f"{subject} (/bin/sh -c ...). The shell becomes "
             "PID 1 and may not forward SIGTERM to the application. Use exec-form "
             "(JSON array) or `exec` the process."
         )

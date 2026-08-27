@@ -244,11 +244,16 @@ fixtures:
       Minimal reproduction of the shipped Django shell-form startup. PID 1 is
       sh, SIGTERM produces no observed reaction, and all in-flight work can
       finish only because the child keeps serving. SP005 must not call that PASS.
+      The shell comes from this file's `command:`, not from the image, which is
+      exec-form — the row the static reading used to be blind to, and the reason
+      the note has to name the configuration rather than the entrypoint.
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: FAIL, branch: signal_discarded}
       SP005: {status: INCONCLUSIVE, branch: shutdown_never_started}
       SP006: {status: FAIL, branch: past_deadline}
+    notes_present:
+      SP003: ["command in your configuration is shell-form"]
 
   # One image shape, two spellings of it, and the reason SP003's static note is
   # conditional. `notes_absent`/`notes_present` are asserted by

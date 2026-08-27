@@ -36,9 +36,13 @@ def _report(
     pid1: Pid1Facts | None = None,
     readiness_changed: bool = False,
     cmd: list[str] | None = None,
+    target_command: list[str] | None = None,
 ) -> RunReport:
     deployment = Deployment(termination_grace_period=budget)
-    config = Config(target=Target(image="example:latest", port=8000), deployment=deployment)
+    config = Config(
+        target=Target(image="example:latest", port=8000, command=target_command),
+        deployment=deployment,
+    )
     report = RunReport(config=config)
     report.sigterm_ns = 10 * SECOND
     if shutdown_ms is not None:
@@ -362,6 +366,84 @@ def test_a_shell_that_execs_into_a_process_with_no_handler_keeps_the_note() -> N
     )
     assert result.branch == "signal_discarded"
     assert any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_a_shell_form_command_from_the_configuration_gets_the_note() -> None:
+    """The mirror of the suppression above, and the same root cause.
+
+    The static reading looked only at the image, so a configuration that put
+    `/bin/sh -c` in front of an exec-form image was invisible: `sh` genuinely
+    held PID 1, the application never saw SIGTERM, and no note said so. One
+    defect printed a warning about a shell the run had measured away; this one
+    stayed silent about a shell the configuration had just introduced.
+    """
+    result = SignalContract().evaluate(
+        _report(target_command=_SHELL_CMD, pid1=_SHELL_PID1, exit_code=137)
+    )
+
+    assert result.evidence["cmd"] == _SHELL_CMD
+    assert result.evidence["cmd_source"] == "config"
+    assert result.evidence["cmd_shell_form"] is True
+    assert any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_the_note_names_the_configuration_when_that_is_where_the_shell_came_from() -> None:
+    """`The entrypoint is shell-form` sends the reader to the wrong file.
+
+    The Dockerfile does not contain the string; the `command:` in their own
+    configuration does. A note that misnames its own subject costs the reader
+    the search before it costs them the fix.
+    """
+    result = SignalContract().evaluate(
+        _report(target_command=_SHELL_CMD, pid1=_SHELL_PID1, exit_code=137)
+    )
+
+    assert any("command in your configuration is shell-form" in n for n in result.notes)
+
+
+def test_the_configuration_command_replaces_the_images_for_the_reading() -> None:
+    """Docker sends `command:` as the container's Cmd, which replaces the image's.
+
+    So an image whose own CMD execs away says nothing about a run that was given
+    a different command. Reading the image here would clear a note the run has
+    every reason to print.
+    """
+    result = SignalContract().evaluate(
+        _report(
+            cmd=_SHELL_EXEC_CMD,
+            target_command=_SHELL_CMD,
+            pid1=_SHELL_PID1,
+            exit_code=137,
+        )
+    )
+
+    assert result.evidence["cmd"] == _SHELL_CMD
+    assert any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_a_configuration_that_execs_away_is_measured_like_any_other() -> None:
+    """service-b's real shape: a shell-form image, overridden with an exec form.
+
+    The override is what ran, PID 1 was the application, and the suppression
+    applies for the same reason it applies to an image that execs — the source
+    of the command does not change what the run measured.
+    """
+    result = SignalContract().evaluate(
+        _report(cmd=_SHELL_CMD, target_command=_SHELL_EXEC_CMD, pid1=_HANDLER)
+    )
+
+    assert result.evidence["cmd_source"] == "config"
+    assert not any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_the_image_command_is_read_when_the_configuration_supplies_none() -> None:
+    result = SignalContract().evaluate(
+        _report(cmd=_SHELL_CMD, pid1=_SHELL_PID1, exit_code=137)
+    )
+
+    assert result.evidence["cmd"] == _SHELL_CMD
+    assert result.evidence["cmd_source"] == "image"
+    assert any("The entrypoint is shell-form" in note for note in result.notes)
 
 
 def test_the_duration_prefers_the_daemons_own_clock() -> None:

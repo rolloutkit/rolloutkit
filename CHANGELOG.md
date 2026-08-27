@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--env KEY=VALUE` (repeatable) and `--env-file PATH` on the configless
+  one-line path. They join the existing precedence — CLI over environment over
+  YAML over default — and land in `target.env`, so a value passed on the command
+  line is redacted by the same rule as one written in the file.
+- SP004 branch `accept_window_unmeasured` (INCONCLUSIVE) behind a new
+  `accept_window_measured` precondition. `accept_window_ms` is a drain
+  measurement only while the probe is still being accepted when the signal
+  lands; when it is not, the run now declines to date a listener close it never
+  saw, and publishes the raw negative value as evidence.
+- `IN_APP_PRECEDENCE` on SP004: the order its in_app clauses are asked in is
+  declared worst-first and tested, rather than being whatever order the `if`
+  statements happened to be written in.
+
+### Changed
+
+- The terminal report prints contract notes whatever the verdict says. They were
+  suppressed on PASS and SKIP, which hid the one thing a green SP004 row has to
+  say: that connections were reset after its window had already closed.
+- SP004 scopes `accept_then_reset` to the declared `in_app_window`, keyed on
+  when the caller asked rather than when the handshake completed. A reset asked
+  for after the window is reported as a count and a note, not a failure —
+  measurement across 176 runs put the two populations at +11.8..+1018.5ms and
+  +1255.1ms or later against a 1200ms window, with no overlap.
+
+### Fixed
+
+- SP004 reads its unmeasured mechanism from the attempts between the last
+  accepted connection and T0, not from every attempt after it. Refusals from a
+  process that has already exited described the exit, and were reporting a
+  listener as gone before a signal it was still serving through.
+
 ## [0.1.0] - 2026-08-26
 
 First release. `Changed` and `Fixed` below are relative to the `0.1.0.dev0`

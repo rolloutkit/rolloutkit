@@ -5,28 +5,28 @@ measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_C5SN4PAD4A
+preflightkit 0.1.0   run pfk_DKW2N3HF7I
 Target: service-b:latest
 Profile: kubernetes, grace 30s, preStop sleep 5s, drain prestop -> shutdown budget 25s
 
 STARTUP
-  startup resolution                          178ms
-  TCP :8000 open                              6.41s
-  GET /healthz/ -> 200                        6.83s
+  startup resolution                          176ms
+  TCP :8000 open                              6.13s
+  GET /healthz/ -> 200                        6.54s
   PID 1 signal disposition                    gunicorn, SIGTERM handler installed
 
 BASELINE (before the signal)
   GET /api/subjects/ x25                      25/25 ok -> 200
-  request duration p50 / p90                  134ms / 160ms
+  request duration p50 / p90                  110ms / 139ms
   sigterm_after (from config)                 300ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            -252ms (±50ms)
+  T2  last new connection accepted            -247ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 6.83s (budget 1m0s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.56ms, max 
-94ms)
+  SP001 startup                PASS   ready in 6.54s (budget 1m0s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.57ms, max 
+84ms)
   SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
 283ms
         - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
@@ -34,23 +34,23 @@ the measurement would describe tini, not your app.
   SP004 drain-window           PASS   not_applicable: preStop owns routing removal, so the 
 new-connection probe stops at T0 and listener timing is evidence only
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
-  SP005 inflight-completion    FAIL   4/56 completed, 52 destroyed
-        request #30 reset_before_response during awaiting_response +70ms
-        request #44 reset_before_response during awaiting_response +71ms
-        request #45 reset_before_response during awaiting_response +70ms
-        request #48 reset_before_response during awaiting_response +71ms
-        request #52 reset_before_response during awaiting_response +70ms
-        ... and 47 more destroyed requests (--format json lists every one)
+  SP005 inflight-completion    FAIL   2/50 completed, 48 destroyed
+        request #36 reset_before_response during awaiting_response +58ms
+        request #53 reset_before_response during awaiting_response +57ms
+        request #55 reset_before_response during awaiting_response +57ms
+        request #56 reset_before_response during awaiting_response +57ms
+        request #57 reset_before_response during awaiting_response +57ms
+        ... and 43 more destroyed requests (--format json lists every one)
   SP006 shutdown-deadline      PASS   exited in 283ms of 25s
         - Budget is terminationGracePeriod (30s) minus preStop (5s). The hook is spent from the same
 window.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 3.47 | probe sidecar | probe-path jitter 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.95 | probe sidecar | probe-path jitter 
 ~0.1ms | teardown not_calibrated
   Timestamps come from monotonic_ns; application-facing observations are precise to about 0.1ms at 
 sidecar, not to the nanosecond.
   T4 is the daemon's own kill->die pair (283ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 290ms.
+timeline above is drawn on our clock, which saw the exit at 289ms.
 
 Result: 1 FAIL
 report-only: exit 0. Use --fail-on error to block CI.

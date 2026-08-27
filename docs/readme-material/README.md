@@ -39,7 +39,7 @@ not agree:
 | contract | `in_app`, 5s window | `prestop`, 5s sleep |
 | --- | --- | --- |
 | SP004 drain-window | **INCONCLUSIVE** — `accept_window_unmeasured`, the window was never observed | **PASS** — `prestop_not_applicable`, the hook owns routing removal |
-| SP005 inflight-completion | FAIL — 4/76 completed, 72 destroyed | FAIL — 4/56 completed, 52 destroyed |
+| SP005 inflight-completion | FAIL — 4/68 completed, 64 destroyed | FAIL — 2/50 completed, 48 destroyed |
 
 SP004 is the row that moves, and what it moves between is the point. Declaring
 `in_app` is claiming the application keeps accepting new connections for the
@@ -48,15 +48,15 @@ full 5s window, so the tool has to time when the listener stopped; declaring
 listener behaviour stops being a question.
 
 Under `in_app` the answer is that there is no answer. `T2 last new connection
-accepted -194ms` is a negative window: the last connection the probe got
+accepted -180ms` is a negative window: the last connection the probe got
 accepted predates the signal, so no accept after T0 was ever observed. Rather
-than report that as a listener that "closed -194ms after T0" — a stopwatch
+than report that as a listener that "closed -180ms after T0" — a stopwatch
 reading nobody took — SP004 declines, keeps the raw number in evidence, and
 names the mechanism the evidence supports:
 
 ```
 SP004 drain-window  INCONCLUSIVE  accept window not measured: the probe was still busy
-on an earlier connection for the 194ms before T0 (`explain SP004` for why, --format
+on an earlier connection for the 180ms before T0 (`explain SP004` for why, --format
 json for the attempts)
 ```
 
@@ -99,7 +99,7 @@ The image's own `CMD` is `/bin/sh -c "… && gunicorn …"` — no `exec`, so th
 shell stays PID 1, and the kernel discards a SIGTERM sent to a PID 1 whose
 disposition is still the default. The two `.yaml` files here each add `exec` to
 that command line, which is why their runs show `gunicorn, SIGTERM handler
-installed` and a shutdown finished inside 300ms. Both readings are true of the same image: what
+installed` and a shutdown finished inside 290ms. Both readings are true of the same image: what
 the container does as shipped, and what it does once the entrypoint is fixed.
 
 That run needs one flag, and it is the reason `--env` exists:

@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Measured durations are no longer truncated to whole milliseconds on their way
+  to the report. Every summary reached the formatter through `int()`, so
+  service-b's readiness median of 0.596ms printed as `p50 0ms` — a latency no
+  HTTP probe can return — beside a `max 89ms` taken from the same burst.
+  Configured durations keep the old formatter, which their parser already
+  guarantees is whole.
 - SP004 reads its unmeasured mechanism from the attempts between the last
   accepted connection and T0, not from every attempt after it. Refusals from a
   process that has already exited described the exit, and were reporting a

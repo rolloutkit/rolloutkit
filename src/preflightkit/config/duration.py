@@ -48,7 +48,10 @@ def parse_duration_ms(value: object) -> int:
 
 
 def format_ms(ms: int) -> str:
-    """Render milliseconds the way the reports read best."""
+    """Render a *configured* duration, which is whole milliseconds by construction.
+
+    Use `format_measured_ms` for anything that came off a clock.
+    """
     if ms < 1000:
         return f"{ms}ms"
     seconds = ms / 1000
@@ -56,6 +59,36 @@ def format_ms(ms: int) -> str:
         return f"{seconds:.2f}".rstrip("0").rstrip(".") + "s"
     minutes, rest = divmod(seconds, 60)
     return f"{int(minutes)}m{rest:.0f}s"
+
+
+#: Below this, the fraction of a millisecond *is* the measurement. Above it, the
+#: fraction is noise next to what the reader is comparing.
+SUB_MS_PRECISION_BELOW_MS = 10.0
+
+
+def format_measured_ms(ms: float) -> str:
+    """Render a measured duration without turning it into a different number.
+
+    Every report used to reach `format_ms` through `int()`, which truncates
+    toward zero. For a shutdown of 289.7ms that costs a millisecond nobody
+    notices. For readiness it printed a lie: service-b's ten probes measured
+    0.596ms at the median and the row read `p50 0ms`, a latency no HTTP probe
+    can return, next to a `max 89ms` taken from the same burst. A reader is
+    entitled to conclude from that the tool is broken.
+
+    So: keep the fraction where it carries the finding, round rather than
+    truncate where it does not, and never render a measured duration as a number
+    the probe could not have measured.
+    """
+    if abs(ms) < SUB_MS_PRECISION_BELOW_MS:
+        rendered = f"{ms:.2f}".rstrip("0").rstrip(".")
+        # A positive measurement below 5us would round to "0" at two decimals.
+        # It has never been observed on any host, and it still may not print as
+        # a zero, which is the whole point of this function.
+        if rendered in ("0", "-0"):
+            return f"{ms:.1g}ms"
+        return f"{rendered}ms"
+    return format_ms(round(ms))
 
 
 Duration = Annotated[int, BeforeValidator(parse_duration_ms)]

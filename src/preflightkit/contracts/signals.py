@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from preflightkit.config.duration import format_ms
+from preflightkit.config.duration import format_measured_ms
 from preflightkit.config.models import Platform
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.engine.context import SIGKILL_EXIT, SIGTERM_EXIT, RunReport
@@ -77,7 +77,7 @@ class SignalContract:
         assert report.exit_ns is not None, "the runner requires a daemon exit status"
 
         duration_ms = report.shutdown_duration_ms
-        duration = format_ms(int(duration_ms or 0))
+        duration = format_measured_ms(duration_ms or 0)
 
         if not shutdown_started:
             if report.runtime_handler_installed is False:

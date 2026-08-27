@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from preflightkit.config.duration import format_ms
+from preflightkit.config.duration import format_measured_ms, format_ms
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.engine.context import RunReport
 from preflightkit.probes.http import ProbeResult
@@ -94,12 +94,21 @@ class ReadinessStabilityContract:
                 "same_as_health",
             )
 
+        # Ten samples are asserted above, so both summaries exist. The old code
+        # said `p50_ms or 0`, which would have printed a measured `0ms` for a
+        # baseline that had never been taken — the one case where the reader most
+        # needs to be told nothing was measured.
+        p50 = baseline.p50_ms
         maximum = baseline.max_ms
-        if maximum is not None and maximum > budget:
+        assert p50 is not None and maximum is not None, (
+            "ten probe outcomes always summarise to a p50 and a max"
+        )
+
+        if maximum > budget:
             return result(
                 Status.WARN,
-                f"readiness max latency {format_ms(int(maximum))} exceeded the "
-                f"{format_ms(budget)} budget (p50 {format_ms(int(baseline.p50_ms or 0))}, "
+                f"readiness max latency {format_measured_ms(maximum)} exceeded the "
+                f"{format_ms(budget)} budget (p50 {format_measured_ms(p50)}, "
                 f"n={len(baseline.samples)})",
                 "latency_over_budget",
             )
@@ -107,8 +116,8 @@ class ReadinessStabilityContract:
         return result(
             Status.PASS,
             f"readiness returned {expected_status} for all {len(baseline.samples)} "
-            f"probes (p50 {format_ms(int(baseline.p50_ms or 0))}, "
-            f"max {format_ms(int(maximum or 0))})",
+            f"probes (p50 {format_measured_ms(p50)}, "
+            f"max {format_measured_ms(maximum)})",
             "stable",
         )
 

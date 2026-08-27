@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from preflightkit.config.duration import format_ms
+from preflightkit.config.duration import format_measured_ms, format_ms
 from preflightkit.contracts.base import (
     SHUTDOWN_BUDGET_RESOLVABLE,
     ContractResult,
@@ -63,8 +63,8 @@ class DeadlineContract:
                 )
             else:
                 summary = (
-                    f"exited in {format_ms(int(duration))}, "
-                    f"{format_ms(int(-margin))} past the {format_ms(budget)} budget"
+                    f"exited in {format_measured_ms(duration)}, "
+                    f"{format_measured_ms(-margin)} past the {format_ms(budget)} budget"
                 )
             return ContractResult(
                 self.id,
@@ -87,8 +87,8 @@ class DeadlineContract:
                 self.id,
                 self.name,
                 Status.WARN,
-                f"exited in {format_ms(int(duration))}, leaving only "
-                f"{format_ms(int(margin))} of the {format_ms(budget)} budget",
+                f"exited in {format_measured_ms(duration)}, leaving only "
+                f"{format_measured_ms(margin)} of the {format_ms(budget)} budget",
                 branch="thin_margin",
                 expected=expected,
                 actual=actual,
@@ -104,7 +104,7 @@ class DeadlineContract:
             self.id,
             self.name,
             Status.PASS,
-            f"exited in {format_ms(int(duration))} of {format_ms(budget)}",
+            f"exited in {format_measured_ms(duration)} of {format_ms(budget)}",
             branch="within_budget",
             expected=expected,
             actual=actual,

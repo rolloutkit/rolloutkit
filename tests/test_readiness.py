@@ -106,6 +106,47 @@ def test_sp002_stable_readiness_passes() -> None:
     assert (result.status, result.branch) == (Status.PASS, "stable")
 
 
+#: The ten probe latencies service-b actually returned, in order. The first
+#: sample is the target's own first-request cost, not connection setup: probing
+#: the same warm container ten times on a fresh connection each time measured
+#: 1.49ms at the median against 1.40ms over a shared one, so the 150x step
+#: between sample one and the rest is a property of the application.
+SERVICE_B_LATENCIES_MS = [
+    89.255, 0.841, 0.655, 0.858, 0.538, 0.512, 0.64, 0.521, 0.552, 0.472,
+]
+
+
+def test_sp002_reports_a_sub_millisecond_p50_as_it_was_measured() -> None:
+    """The row that read `p50 0ms, max 89ms` and looked like a broken tool.
+
+    The median of these ten samples is 0.596ms. Every summary reached the
+    formatter through `int()`, which truncates toward zero, so a latency no HTTP
+    probe can return was printed next to a max taken from the same burst.
+    """
+    samples = [_sample(latency_ms=ms) for ms in SERVICE_B_LATENCIES_MS]
+
+    result = ReadinessStabilityContract().evaluate(_report(samples))
+
+    assert (result.status, result.branch) == (Status.PASS, "stable")
+    assert result.actual["latency_p50_ms"] == pytest.approx(0.596)
+    assert "p50 0.6ms" in result.summary
+    assert "p50 0ms" not in result.summary
+    assert "max 89ms" in result.summary
+
+
+def test_sp002_keeps_the_sub_millisecond_p50_when_it_warns_too() -> None:
+    """The over-budget branch prints the same pair and had the same defect."""
+    samples = [_sample(latency_ms=ms) for ms in SERVICE_B_LATENCIES_MS]
+
+    result = ReadinessStabilityContract().evaluate(
+        _report(samples, latency_budget="50ms")
+    )
+
+    assert (result.status, result.branch) == (Status.WARN, "latency_over_budget")
+    assert "p50 0.6ms" in result.summary
+    assert "readiness max latency 89ms" in result.summary
+
+
 def test_sp002_missing_baseline_is_an_engine_invariant() -> None:
     with pytest.raises(AssertionError, match="completed readiness baseline"):
         ReadinessStabilityContract().evaluate(_report(None))

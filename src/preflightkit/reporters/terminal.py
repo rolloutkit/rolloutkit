@@ -11,7 +11,7 @@ from collections import Counter
 from rich.console import Console
 from rich.text import Text
 
-from preflightkit.config.duration import format_ms
+from preflightkit.config.duration import format_measured_ms, format_ms
 from preflightkit.config.models import Config
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.engine.context import RunReport
@@ -444,4 +444,4 @@ def _delta_ms(start: int | None, end: int | None) -> float | None:
 
 
 def _ms(value: float | None) -> str:
-    return "-" if value is None else format_ms(int(value))
+    return "-" if value is None else format_measured_ms(value)

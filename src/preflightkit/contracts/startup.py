@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from preflightkit.config.duration import format_ms
+from preflightkit.config.duration import format_measured_ms, format_ms
 from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.engine.context import RunReport
 
@@ -62,9 +62,9 @@ class StartupContract:
                 self.id,
                 self.name,
                 Status.PASS,
-                f"ready in {format_ms(int(duration))}; the nominal "
-                f"{format_ms(int(overrun))} budget overrun is inside the "
-                f"{format_ms(int(resolution))} startup resolution",
+                f"ready in {format_measured_ms(duration)}; the nominal "
+                f"{format_measured_ms(overrun)} budget overrun is inside the "
+                f"{format_measured_ms(resolution)} startup resolution",
                 branch="within_resolution",
                 expected=f"ready within {format_ms(budget)}",
                 actual=actual,
@@ -79,7 +79,7 @@ class StartupContract:
                 self.id,
                 self.name,
                 Status.WARN,
-                f"ready in {format_ms(int(duration))}, over the "
+                f"ready in {format_measured_ms(duration)}, over the "
                 f"{format_ms(budget)} budget",
                 branch="over_budget",
                 expected=f"ready within {format_ms(budget)}",
@@ -92,7 +92,7 @@ class StartupContract:
             self.id,
             self.name,
             Status.PASS,
-            f"ready in {format_ms(int(duration))} (budget {format_ms(budget)})",
+            f"ready in {format_measured_ms(duration)} (budget {format_ms(budget)})",
             branch="within_budget",
             expected=f"ready within {format_ms(budget)}",
             actual=actual,

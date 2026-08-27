@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from rich.console import Console
 
 from preflightkit.config.models import Config, Deployment, Drain, DrainStrategy, Target
-from preflightkit.contracts.base import Status
+from preflightkit.contracts.base import ContractResult, Status
 from preflightkit.contracts.drain import DrainWindowContract
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.preconditions import evaluate_contracts
@@ -239,15 +241,49 @@ def test_timeline_and_resolution_are_always_evidence() -> None:
     assert result.evidence["accept_window_resolution_ms"] == 50
 
 
-def test_terminal_prints_accept_window_with_its_resolution() -> None:
-    report = _report(DrainStrategy.IN_APP)
-    outcome = RunOutcome(report=report, results=[_result(report)])
+def _render(report: RunReport, result: ContractResult) -> str:
+    outcome = RunOutcome(report=report, results=[result])
     session = Session(run_id="pfk_test", image="fixture:test", runs=[outcome])
     console = Console(record=True, width=140)
-
     terminal.render(session, "test", console)
+    return console.export_text()
 
-    assert "+1600ms (±50ms)" in console.export_text()
+
+def test_terminal_prints_accept_window_with_its_resolution() -> None:
+    report = _report(DrainStrategy.IN_APP)
+    assert "+1600ms (±50ms)" in _render(report, _result(report))
+
+
+def test_terminal_prints_notes_under_a_passing_contract() -> None:
+    """The finding this branch exists to surface has to reach the reader.
+
+    SP004 passes when every reset was asked for after its window had closed, and
+    the note is the only place the run says those connections were reset at all.
+    A reporter that printed notes only under a red status would withhold it
+    exactly where the verdict says nothing is wrong.
+    """
+    report = _report(DrainStrategy.IN_APP, reset=True, started_ms=1500)
+    result = _result(report)
+    assert result.status is Status.PASS
+
+    rendered = _render(report, result)
+
+    assert "after the 1200ms window had already closed" in rendered
+
+
+def test_a_passing_contract_without_notes_still_prints_one_line() -> None:
+    """The other half of the change: quiet rows stay quiet.
+
+    Most PASS rows carry no notes, and printing notes unconditionally must not
+    add anything to them - the contract line is still the whole of their output.
+    """
+    report = _report(DrainStrategy.IN_APP)
+    result = replace(_result(report), notes=[])
+
+    rendered = _render(report, result)
+
+    assert "SP004" in rendered
+    assert "        - " not in rendered
 
 
 def _attempts_from(

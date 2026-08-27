@@ -291,8 +291,21 @@ def _contracts_block(console: Console, session: Session, redactor: Redactor) -> 
 
 
 def _evidence_block(console: Console, result: ContractResult, redactor: Redactor) -> None:
-    if result.status in (Status.PASS, Status.SKIP):
-        return
+    """Destroyed-request rows, then notes.
+
+    The rows describe a verdict that went against the target, so PASS and SKIP
+    have none to show. Notes are not tied to the verdict that way: SP004 can pass
+    and still have watched connections be reset after its window closed. Printing
+    those only under a red status would make the report agree with itself rather
+    than with the run, so a note is printed wherever it exists.
+    """
+    if result.status not in (Status.PASS, Status.SKIP):
+        _broken_requests(console, result)
+    for note in result.notes:
+        console.print(Text(f"        - {redactor.text(note)}", style="dim"))
+
+
+def _broken_requests(console: Console, result: ContractResult) -> None:
     broken = result.evidence.get("broken_requests") or []
     for item in broken[:_MAX_EVIDENCE_ROWS]:
         offset = item.get("offset_ms")
@@ -314,8 +327,6 @@ def _evidence_block(console: Console, result: ContractResult, redactor: Redactor
                 style="dim",
             )
         )
-    for note in result.notes:
-        console.print(Text(f"        - {redactor.text(note)}", style="dim"))
 
 
 def _environment_block(console: Console, report: RunReport) -> None:

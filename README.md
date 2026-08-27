@@ -1,121 +1,208 @@
 # preflightkit
 
-Run a backend container, reproduce what a deploy does to it, and **measure** how
-it actually behaves. Every verdict comes with evidence.
+Your service passes its tests. Does it survive a rollout?
 
-> Measure, don't guess.
-
-preflightkit does not tell you that "graceful shutdown may be misconfigured". It
-shows you a timeline and tells you which requests were destroyed.
-
-## Quick start
-
-You can get a useful lifecycle report without creating a configuration file:
-
-```console
-preflightkit test my-api:latest --port 8000 --ready-url /ready
-```
-
-Without a deployment profile, preflightkit uses `platform: kubernetes`, a
-30-second grace period, `pre_stop: none`, and `drain: none`. The missing drain
-mechanism makes SP004 `WARN`; this is expected because nothing covers routing
-propagation during shutdown. Without `contracts.inflight`, required contract
-SP005 uses the readiness endpoint as a fallback. It returns a real verdict when
-the readiness latency is distinguishable from host jitter; otherwise, it
-returns `INCONCLUSIVE` with the measured values and tells you to pass
-`--inflight-path` for a slower endpoint. Set `contracts.inflight: null` only
-when you intend to disable SP005 and receive `SKIP`.
-
-Use `--fail-on error` to gate on failures. Required `SKIP` and `INCONCLUSIVE`
-contracts also block that gate unless you pass `--allow-inconclusive`. CLI
-flags override `PREFLIGHTKIT_*` environment variables, which override
-`preflightkit.yaml`; model defaults apply last.
-
-The remaining commands don't require AI or hidden configuration. `measure`
-prints measurements and a timeline without contract verdicts or gating,
-`validate` checks configuration without contacting Docker, `explain SPXXX`
-prints static contract documentation, and `list-contracts` lists the available
-contracts. Use `--format json` or `--format junit` when another tool consumes a
-`test` report.
+`preflightkit` runs your container the way a deployment does — starts it, puts
+traffic on it, sends SIGTERM, and watches what happens to the requests that were
+in flight. It reports what it measured, with timestamps.
 
 ```
-preflightkit v0.1   run pfk_01J8C4XK
-Target: my-api:latest
-Profile: kubernetes, grace 30s, preStop sleep 5s -> shutdown budget 25s
+$ preflightkit test service-b:latest --port 8000 --ready-url /healthz/ --env ALLOWED_HOSTS='*'
+```
+
+```
+STARTUP
+  GET /healthz/ -> 200                        6.76s
+  PID 1 signal disposition                    sh, no SIGTERM handler - the kernel will discard it
 
 SHUTDOWN TIMELINE
-  T0  SIGTERM -> PID 1              +0ms
-  T1  readiness -> 503              +87ms
-  T4  process exit (code 143)       +1440ms
+  T2  last new connection accepted            +30017ms (±50ms)
 
-  SP005 in-flight completion        FAIL   8/10 completed, 2 reset
+CONTRACTS
+  SP003 signal-handling        FAIL   shutdown never started: PID 1 (sh) showed no reaction to SIGTERM
+        - PID 1 in a container is the init of a PID namespace, and the kernel silently discards
+          signals whose disposition is still the default for it. The application was never woken;
+          a longer grace period would only make the wait longer.
+  SP006 shutdown-deadline      FAIL   killed by SIGKILL at the end of the 30s budget (exit 137);
+                                      the process never shut itself down
+        - In Kubernetes this is the point where every open connection is severed, whatever is
+          still running.
+
+Result: 2 FAIL, 1 WARN
 ```
 
-## Status
+This is a real Django service. Its Dockerfile uses a shell-form `CMD`, so `/bin/sh`
+becomes PID 1 and the kernel drops SIGTERM on the floor. Every rollout spends the
+full `terminationGracePeriodSeconds` waiting, then severs every open connection.
+Nothing in the logs says so. The exit code is 137, which most dashboards render as
+"OOMKilled or restarted".
 
-Early development — a vertical slice. Working today: SP001 startup, SP002
-readiness stability, SP003 signal handling, SP004 drain window, SP005 in-flight
-completion, and SP006 shutdown deadline, against a Docker runtime. Run-scoped
-dependency services and single-file Compose config import are available.
+## The part that is easy to miss
 
-Contracts whose measurement preconditions do not hold report `INCONCLUSIVE`.
-This is distinct from `SKIP`: `SKIP` means a contract was not configured, while
-`INCONCLUSIVE` means the run could not measure it. Report-only mode remains exit
-0. When you enable `--fail-on`, a required contract that returns `SKIP` or
-`INCONCLUSIVE` blocks the gate. Use `--allow-inconclusive` only when you intend
-to accept an unmeasured required contract.
+The fix is well known: use exec-form, or `exec` the process. Here is the same image
+after that change:
 
-## Scope
+```
+  SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 284ms
+  SP005 inflight-completion    FAIL   4/68 completed, 64 destroyed
+        request #35 reset_before_response during awaiting_response +67ms
+        request #38 reset_before_response during awaiting_response +67ms
+        request #39 reset_before_response during awaiting_response +67ms
+        request #40 reset_before_response during awaiting_response +67ms
+        request #41 reset_before_response during awaiting_response +67ms
+        ... and 59 more destroyed requests (--format json lists every one)
+  SP006 shutdown-deadline      PASS   exited in 284ms of 30s
+```
 
-The only thing in scope is **measurable process behaviour inside a container
-during startup and shutdown**.
+Signal handling is fixed. Shutdown is fast and clean. And the service now destroys
+94% of the requests it was serving, on every single rollout.
 
-It is not a SAST tool, a vulnerability scanner, a Dockerfile linter, a Kubernetes
-YAML linter, a secret scanner, an APM, or a load tester. It does not duplicate
-Trivy, Checkov, KubeLinter, Polaris, or Semgrep.
+It was doing that before too. The difference is that before, shutdown never started,
+so nothing was ever tested. A passing contract can mean the thing you wanted to test
+did not happen — which is why `preflightkit` refuses to report a verdict it could not
+measure.
 
-## Known limitations
+## Install
 
-- **Service mesh.** With Istio or Linkerd the sidecar receives its own SIGTERM
-  and the shutdown ordering changes. Not modelled.
-- **Multi-worker.** `wait` observes PID 1 exiting. That matches Kubernetes
-  semantics, but it does not show the distribution inside a worker group.
-- **HTTP/1.1 only.** gRPC, WebSocket, and queue workers are out — a worker has no
-  externally observable "request in progress" signal, which needs its own design.
-- **macOS.** Every run still gets a user-defined bridge, but Docker Desktop's
-  container IPs are not host-routable. Traffic therefore falls back to a
-  published port and reports `port_proxy_likely: true`. SP001's TCP-open
-  sub-measurement is `INCONCLUSIVE`. SP004 is also `INCONCLUSIVE` when an
-  `in_app` strategy requires direct listener timing; `none` still warns, and
-  `prestop` remains applicable without that timing. Readiness remains
-  measurable. Linux sends traffic directly to the unpublished container IP.
-- **Readiness fallback.** Without `--inflight-path`, SP005 falls back to the
-  readiness endpoint as its in-flight target. A service whose readiness is fast
-  can leave the endpoint's p50 too close to the measurement jitter floor to
-  separate the two, and SP005 then reports `readiness_fallback_below_resolution`
-  rather than guessing. It also declines any window under 3ms outright, whatever
-  the ratio says, because a ratio can be cleared by a quiet probe path as well as
-  by a wide window.
-- **The fallback result depends on the host it ran on.** Resolution on the
-  fallback path is decided against the machine's own noise floor, and that floor
-  is not portable. Measured across three conditions, it moved by 3.4x — a 0.154ms
-  median on an idle macOS laptop against 0.516ms on a native Linux CI daemon —
-  and the same image with 1ms and 2ms of readiness delay resolved on the laptop
-  and was refused on the runner, with nothing about the service differing. A run
-  that resolves on a developer machine can be `INCONCLUSIVE` in CI. Pass
-  `--inflight-path` with a slower representative endpoint for a result that does
-  not depend on where it ran.
-- **Windows** is not supported.
+```
+uvx preflightkit test my-api:latest --port 8000 --ready-url /ready
+```
+
+or `pipx run preflightkit`, or `pip install preflightkit`.
+
+Requires Python 3.12+ and a Docker daemon. Linux gives the most precise timing;
+macOS with Docker Desktop works, and the report says when a measurement was limited
+by the platform.
+
+## What it checks
+
+Six contracts, each of which either measures something or says it could not.
+
+| | |
+|---|---|
+| **SP001** startup | time to TCP and to readiness, against a budget |
+| **SP002** readiness-stability | is readiness correct and stable, or does it flap |
+| **SP003** signal-handling | does SIGTERM reach the process and does it react |
+| **SP004** drain-window | does the listener stay open while routing is still sending traffic |
+| **SP005** inflight-completion | do accepted requests finish, or get reset |
+| **SP006** shutdown-deadline | does the process exit inside the grace budget |
+
+`preflightkit explain SP004` prints what a contract measures, which preconditions it
+needs, every verdict it can reach, and what to do first when it fails.
+
+## Configuration
+
+The one-line form covers a quick look. Anything real wants a config file, because
+the verdicts depend on how you actually deploy:
+
+```yaml
+version: 1
+
+target:
+  image: my-api:latest
+  port: 8000
+  env_file: .env.preflight
+
+services:                     # dependencies, started on the same network
+  db:
+    image: postgres:16-alpine
+
+deployment:                   # this is what SP004 and SP006 judge against
+  platform: kubernetes
+  termination_grace_period: 30s
+  pre_stop: { type: sleep, duration: 5s }
+  drain: { strategy: prestop }
+
+probes:
+  readiness: { path: /ready, expected_status: 200 }
+
+contracts:
+  inflight:
+    request: { method: GET, path: /api/reports, expected_duration: 5s }
+    concurrent: 10
+```
+
+`preflightkit init --from-compose docker-compose.yml --service api` generates most of
+this from a compose file. It reads the file; it never runs it.
+
+The `deployment` block is not decoration. The same image is correct under one drain
+strategy and broken under another, and SP004 says so:
+
+- `prestop` — the platform hook removes the pod from routing before SIGTERM. The
+  listener may close immediately; that is correct.
+- `in_app` — the application owns the gap. It must keep accepting for the declared
+  window after SIGTERM, then drain.
+- `none` — nothing covers routing propagation, so rollouts will drop connections
+  regardless of what the application does.
+
+## In CI
+
+```yaml
+- run: docker build -t my-api:latest .
+- run: uvx preflightkit test -c preflightkit.yaml --fail-on error
+```
+
+Exit codes: `0` pass, `1` a contract failed, `2` bad configuration, `3` the run could
+not be performed, `4` an internal error. Without `--fail-on`, no contract verdict
+blocks anything and the run reports exit 0 — start there, gate later. A configuration
+or infrastructure error is still exit 2 or 3, because in neither case was anything
+measured.
+
+`--format json` emits the full evidence: every timestamp, every broken request, the
+host and calibration the run was measured on. `--format junit` is for CI test panels.
+
+The tool's own cost is a little over a second — probe preparation, calibration and
+teardown — and the rest of a run is your service starting and the in-flight window
+you asked for. End to end on the laptop these captures come from: 4.2s against a Go
+fixture that starts instantly, 9.4s against the Django service above.
+
+## What it will not tell you
+
+- **Resolution depends on the host.** The measurement floor moved by 3.4x across the
+  machines this was calibrated on — 0.154ms on an idle macOS laptop against 0.516ms
+  on a native Linux CI daemon — and it moves the verdict on three of ten
+  configurations. When a window is too small to separate from that floor, the verdict
+  is `INCONCLUSIVE`, not a guess.
+- **The zero-config path uses readiness as the in-flight target.** If your readiness
+  endpoint is very fast, that window cannot be resolved and SP005 says so. Point
+  `--inflight-path` at a slower, representative endpoint for a stable result.
+- **HTTP/1.1 only** in this release. gRPC, WebSocket, and background workers are not
+  covered.
+- **It is not a chaos platform, a linter, or a scanner.** It exercises one narrow
+  thing — the start and the stop — and tries to prove what it found.
+
+## Design
+
+Three rules the implementation is held to:
+
+**Measure, don't guess.** Every FAIL carries evidence: offsets from T0, request
+outcomes, exit codes, the host and its measured noise floor.
+
+**A verdict requires a measurement.** Contracts declare their preconditions. If a
+precondition does not hold — shutdown never started, the baseline was not healthy,
+the window was below the resolution of the probe — the contract returns
+`INCONCLUSIVE` and says which precondition failed. It does not return PASS.
+
+**Runtime evidence beats static inference.** Exit codes are reported, not trusted:
+the same Go binary exits 2 as PID 1 and 143 behind an init, so the code describes the
+container, not the application. Verdicts come from observed behaviour.
 
 ## Security
 
-The target image is treated as untrusted: temporary network, resource limits, no
-host network, no privileged mode, no docker socket mount, no host filesystem
-mount, bounded log collection, and env values redacted from all output.
+The target image is treated as untrusted: a run-scoped network, resource limits, no
+host network, no privileged mode, no Docker socket mount, no host filesystem mount,
+bounded log collection, and env values redacted from every output format.
 
-Running an untrusted image through your local Docker daemon carries risk on its
-own. That is a property of Docker, not of this tool.
+Running an untrusted image through your local Docker daemon carries risk on its own.
+That is a property of Docker, not of this tool.
+
+## Status
+
+v0.1. Docker runtime, six contracts, terminal / JSON / JUnit output.
+
+Planned: dependency fault injection, outbound timeout testing, a GitHub Action with
+PR annotations, a Kubernetes runtime, and an MCP server for agents.
 
 ## License
 
-Apache-2.0
+Apache-2.0.

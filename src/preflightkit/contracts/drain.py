@@ -290,30 +290,29 @@ def accept_window_unmeasured_reason(report: RunReport, cause: str) -> str:
     """
     if cause == "never_accepted":
         return (
-            "the accept probe never had a connection accepted, so there is no "
-            "accept window to hold against the declared in-app window; check "
-            "that target.port is the port the application listens on"
+            "accept window not measured: the probe never had a connection "
+            "accepted — check that target.port is the port the application "
+            "listens on"
         )
     unanswered, refused = _attempts_before_t0_after_last_accept(report)
     mechanism = _unmeasured_mechanism(unanswered, refused)
-    interval = report.accept_probe_interval_ms or ACCEPT_PROBE_INTERVAL_MS
     window = report.accept_window_ms or 0.0
     return (
-        f"{_MECHANISM_PROSE[mechanism]} — accept window not measured: the last "
-        f"connection the probe got accepted was {abs(window):.0f}ms before T0, "
-        f"further back than the {interval}ms probe interval, so what the listener "
-        "did after the signal was never observed. The raw accept_window_ms is in "
-        "evidence"
+        f"accept window not measured: {_MECHANISM_PROSE[mechanism]} for the "
+        f"{abs(window):.0f}ms before T0 (`explain SP004` for why, --format json "
+        "for the attempts)"
     )
 
 
+#: One clause each, because the summary is a line in a table and the reader is
+#: scanning it. The probe interval, the classification rule and what the branch
+#: means are all in `explain SP004`; the attempt-by-attempt evidence is in the
+#: JSON. This sentence owes the reader two things only: which mechanism, and
+#: how much time went unsampled.
 _MECHANISM_PROSE = {
-    "probe_blocked": (
-        "the probe was still waiting on its last accepted connection when the "
-        "signal landed"
-    ),
-    "backlog_saturated": "probe saturated the backlog",
-    "listener_gone": "the probe stopped being accepted before T0",
+    "probe_blocked": "the probe was still busy on an earlier connection",
+    "backlog_saturated": "the target's accept queue was dropping the probe's SYNs",
+    "listener_gone": "the listener had already stopped accepting",
 }
 
 

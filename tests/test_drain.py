@@ -9,7 +9,10 @@ from rich.console import Console
 
 from preflightkit.config.models import Config, Deployment, Drain, DrainStrategy, Target
 from preflightkit.contracts.base import ContractResult, Status
-from preflightkit.contracts.drain import DrainWindowContract
+from preflightkit.contracts.drain import (
+    DrainWindowContract,
+    accept_window_unmeasured_reason,
+)
 from preflightkit.engine.context import RunReport
 from preflightkit.engine.preconditions import evaluate_contracts
 from preflightkit.evidence.model import RunOutcome, Session
@@ -346,15 +349,15 @@ def test_sp004_last_accept_further_back_than_the_interval_is_inconclusive() -> N
         Status.INCONCLUSIVE,
         "accept_window_unmeasured",
     )
-    assert "the probe stopped being accepted before T0" in result.summary
-    assert "accept window not measured" in result.summary
+    assert "the listener had already stopped accepting" in result.summary
+    assert result.summary.startswith("accept window not measured")
 
 
 def test_sp004_names_a_saturated_backlog_when_the_refusals_name_it() -> None:
     """Unanswered SYNs are a full accept queue; RSTs are a closed listener."""
     result = _resolved(_unmeasured(DrainStrategy.IN_APP, unanswered=5, refused=1))
     assert result.branch == "accept_window_unmeasured"
-    assert result.summary.startswith("probe saturated the backlog")
+    assert "the target's accept queue was dropping the probe's SYNs" in result.summary
 
 
 def test_sp004_unmeasured_accept_window_keeps_the_raw_value() -> None:
@@ -390,10 +393,44 @@ def test_sp004_no_sample_between_the_last_accept_and_t0_says_the_probe_was_busy(
         Status.INCONCLUSIVE,
         "accept_window_unmeasured",
     )
-    assert result.summary.startswith(
-        "the probe was still waiting on its last accepted connection"
-    )
+    assert "the probe was still busy on an earlier connection" in result.summary
     assert result.evidence["precondition"]["mechanism"] == "probe_blocked"
+
+
+#: A contract summary is a line in a table the reader is scanning. The old
+#: unmeasured text ran to 318 characters — four wrapped lines under the row —
+#: and a wall that size is a thing readers skip, which costs more than the
+#: detail it carried.
+MAX_SUMMARY_CHARS = 170
+
+
+def test_the_unmeasured_summary_stays_one_scannable_sentence() -> None:
+    """What the summary owes the reader, and what it does not.
+
+    It owes the mechanism and how much time went unsampled. It does not owe the
+    probe interval, the rule that classifies against it, or the attempt list:
+    those are in `explain SP004` and in the JSON, which is where they can be
+    read at length instead of skimmed past.
+    """
+    summaries = {
+        "probe_blocked": _resolved(_unmeasured(DrainStrategy.IN_APP)).summary,
+        "backlog_saturated": _resolved(
+            _unmeasured(DrainStrategy.IN_APP, unanswered=5, refused=1)
+        ).summary,
+        "listener_gone": _resolved(
+            _unmeasured(DrainStrategy.IN_APP, refused=6)
+        ).summary,
+        "never_accepted": accept_window_unmeasured_reason(
+            _unmeasured(DrainStrategy.IN_APP), "never_accepted"
+        ),
+    }
+    for mechanism, summary in summaries.items():
+        assert len(summary) <= MAX_SUMMARY_CHARS, f"{mechanism}: {len(summary)}"
+        assert ". " not in summary, f"{mechanism} grew a second sentence"
+        assert summary.startswith("accept window not measured"), mechanism
+    assert len(set(summaries.values())) == len(summaries), (
+        "each mechanism must still be distinguishable from the summary alone"
+    )
 
 
 def test_sp004_refusals_after_t0_do_not_name_a_mechanism_before_it() -> None:

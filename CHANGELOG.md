@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for after the window is reported as a count and a note, not a failure —
   measurement across 176 runs put the two populations at +11.8..+1018.5ms and
   +1255.1ms or later against a 1200ms window, with no overlap.
+- SP004's unmeasured summary is one sentence naming the mechanism and the
+  unsampled interval, down from 318 characters. The probe interval, the
+  classification rule and the attempt list stay in `explain SP004` and
+  `--format json`.
 
 ### Fixed
 

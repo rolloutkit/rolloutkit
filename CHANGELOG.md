@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unsampled interval, down from 318 characters. The probe interval, the
   classification rule and the attempt list stay in `explain SP004` and
   `--format json`.
+- CI pins `actions/upload-artifact` at v7.0.1 and `actions/download-artifact`
+  at v8.0.1. Both were still on the v4 line, which runs on Node 20; the pair has
+  to move together because `publish.yml` uploads the distribution in one job and
+  downloads it in the next.
 
 ### Fixed
 

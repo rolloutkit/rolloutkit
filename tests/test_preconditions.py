@@ -317,6 +317,67 @@ def test_readiness_fallback_resolves_when_both_clauses_pass() -> None:
     assert result.status is not Status.INCONCLUSIVE
 
 
+_CLOSED_EARLY = "The window closed early"
+_EXPERIMENT_CLAIM = "The experiment and traffic measurement completed"
+
+
+def test_refused_fallback_describes_only_the_refusal() -> None:
+    """A refusal must not arrive with a second, competing cause beside it.
+
+    The fallback precondition refuses before the long-request phase runs, so no
+    request is ever issued. The candidate verdict computed over that skipped
+    phase is still kept in evidence, and it used to bring two notes with it:
+    "0 of 0 requests finished before the signal. The window closed early",
+    which counts an experiment that never happened, and a claim that the
+    experiment had completed. Either one reads as the reason SP005 came back
+    INCONCLUSIVE, and neither is.
+    """
+    report = _finished_report()
+    report.config = Config(target=Target(image="fixture:latest", port=8000))
+    report.inflight_target = "readiness_fallback"
+    report.inflight_path = "/ready"
+    report.inflight_fallback_p50_ms = 0.6
+    report.inflight_fallback_jitter_ms = 0.6
+    report.inflight_fallback_ratio = 1.0
+    report.baseline = None
+    report.requests = []
+
+    result = _by_id(report)["SP005"]
+
+    assert result.branch == "readiness_fallback_below_resolution"
+    assert not any(_CLOSED_EARLY in note for note in result.notes)
+    assert not any(_EXPERIMENT_CLAIM in note for note in result.notes)
+    # The candidate is still in evidence, and one note still says why it is
+    # there — it just no longer claims anything about how far the run got.
+    assert result.evidence["unresolved_candidate"] == {
+        "status": "ERROR",
+        "branch": "nothing_in_flight",
+    }
+    assert any("kept in evidence, but not published" in n for n in result.notes)
+
+
+def test_a_genuinely_empty_window_keeps_the_closed_early_note() -> None:
+    """The other direction: requests were issued, and all of them finished.
+
+    This is the case the note was written for — a real experiment whose window
+    closed before the signal — and suppressing it along with the "0 of 0" one
+    would cost the reader the only advice that names sigterm_after.
+    """
+    report = _finished_report()
+    early = _completed_request()
+    early.started_ns = 3 * SECOND
+    early.connected_ns = 3 * SECOND
+    early.request_sent_ns = 3 * SECOND
+    early.finished_ns = 4 * SECOND
+    report.requests = [early]
+
+    result = _by_id(report)["SP005"]
+
+    assert (result.status, result.branch) == (Status.ERROR, "nothing_in_flight")
+    assert any("1 of 1 requests finished" in note for note in result.notes)
+    assert any(_CLOSED_EARLY in note for note in result.notes)
+
+
 def test_none_drain_warns_even_when_shutdown_never_started() -> None:
     report = RunReport(
         config=Config(target=Target(image="fixture:latest", port=8000))

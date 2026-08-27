@@ -92,9 +92,6 @@ class InflightContract:
         # here would be the worst possible outcome: a green result that measured
         # an empty window.
         if not in_flight:
-            finished_early = sum(
-                1 for r in report.requests if (r.finished_ns or 0) <= report.sigterm_ns
-            )
             return ContractResult(
                 self.id,
                 self.name,
@@ -104,13 +101,7 @@ class InflightContract:
                 branch="nothing_in_flight",
                 actual=actual,
                 evidence=evidence,
-                notes=notes
-                + [
-                    f"{finished_early} of {len(report.requests)} requests finished "
-                    "before the signal. The window closed early: lower "
-                    "contracts.inflight.sigterm_after, or leave it unset and let it "
-                    "be derived from the baseline p50.",
-                ],
+                notes=notes + _closed_early_note(report),
             )
 
         if broken:
@@ -232,6 +223,28 @@ def _window_evidence(report: RunReport) -> dict[str, Any]:
         if report.baseline is None
         else _round(report.baseline.p50_ms),
     }
+
+
+def _closed_early_note(report: RunReport) -> list[str]:
+    """Explain an empty window only when the requests were actually issued.
+
+    A precondition can refuse SP005 before the long-request phase runs at all,
+    and the candidate verdict computed on that skipped phase still reaches the
+    report as evidence. With no requests issued, "0 of 0 finished before the
+    signal" is a count of an experiment that never happened — it reads as a
+    second, competing cause next to the refusal that is the real one.
+    """
+    if not report.requests:
+        return []
+    finished_early = sum(
+        1 for r in report.requests if (r.finished_ns or 0) <= report.sigterm_ns
+    )
+    return [
+        f"{finished_early} of {len(report.requests)} requests finished "
+        "before the signal. The window closed early: lower "
+        "contracts.inflight.sigterm_after, or leave it unset and let it "
+        "be derived from the baseline p50."
+    ]
 
 
 def _window_notes(report: RunReport) -> list[str]:

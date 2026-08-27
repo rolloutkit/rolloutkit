@@ -286,10 +286,13 @@ def _blocked_result(
         },
         notes=(candidate.notes if candidate is not None else [])
         + (
+            # Says why the candidate is in evidence, and nothing about how far
+            # the run got: a precondition can refuse before the phase the
+            # candidate describes ever ran, so any claim about the experiment
+            # here would be a claim this function is in no position to make.
             [
-                "The experiment and traffic measurement completed, but this "
-                "unresolved candidate was not published because its precondition "
-                "did not hold."
+                "A candidate verdict was computed and kept in evidence, but not "
+                "published: this contract's precondition did not hold."
             ]
             if candidate is not None
             else []

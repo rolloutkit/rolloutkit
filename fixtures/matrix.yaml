@@ -78,6 +78,12 @@ fixtures:
       the same either way, which is why the row asserts the branch.
     expect:
       SP005: {status: INCONCLUSIVE, branch: readiness_fallback_below_resolution}
+    notes_absent:
+      SP005:
+        # The refusal happens before any request is issued. Both of these used
+        # to print beside it and read as a second, competing cause.
+        - "The window closed early"
+        - "The experiment and traffic measurement completed"
 
   - name: startup-within-resolution
     image: pfk-fixture-stdlib
@@ -139,6 +145,11 @@ fixtures:
       SP003: {status: PASS, branch: shutdown_observed}
       SP005: {status: ERROR, branch: nothing_in_flight}
       SP006: {status: PASS, branch: within_budget}
+    notes_present:
+      SP005:
+        # The other direction: requests really were issued and really did all
+        # finish, so the advice that names sigterm_after has to survive.
+        - "The window closed early"
 
   - name: ignores-sigterm
     image: pfk-fixture-ignores

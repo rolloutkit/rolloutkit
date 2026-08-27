@@ -39,7 +39,7 @@ not agree:
 | contract | `in_app`, 5s window | `prestop`, 5s sleep |
 | --- | --- | --- |
 | SP004 drain-window | **INCONCLUSIVE** — `accept_window_unmeasured`, the window was never observed | **PASS** — `prestop_not_applicable`, the hook owns routing removal |
-| SP005 inflight-completion | FAIL — 2/84 completed, 82 destroyed | FAIL — 2/72 completed, 70 destroyed |
+| SP005 inflight-completion | FAIL — 4/76 completed, 72 destroyed | FAIL — 4/56 completed, 52 destroyed |
 
 SP004 is the row that moves, and what it moves between is the point. Declaring
 `in_app` is claiming the application keeps accepting new connections for the
@@ -48,15 +48,15 @@ full 5s window, so the tool has to time when the listener stopped; declaring
 listener behaviour stops being a question.
 
 Under `in_app` the answer is that there is no answer. `T2 last new connection
-accepted -181ms` is a negative window: the last connection the probe got
+accepted -194ms` is a negative window: the last connection the probe got
 accepted predates the signal, so no accept after T0 was ever observed. Rather
-than report that as a listener that "closed -181ms after T0" — a stopwatch
+than report that as a listener that "closed -194ms after T0" — a stopwatch
 reading nobody took — SP004 declines, keeps the raw number in evidence, and
 names the mechanism the evidence supports:
 
 ```
 SP004 drain-window  INCONCLUSIVE  accept window not measured: the probe was still busy
-on an earlier connection for the 181ms before T0 (`explain SP004` for why, --format
+on an earlier connection for the 194ms before T0 (`explain SP004` for why, --format
 json for the attempts)
 ```
 
@@ -91,7 +91,8 @@ production defect the configured runs cannot:
 ```
 PID 1 signal disposition   sh, no SIGTERM handler - the kernel will discard it
 SP003 signal-handling  FAIL   shutdown never started: PID 1 (sh) showed no reaction to SIGTERM
-SP006 shutdown-deadline  FAIL  killed by SIGKILL at the end of the 30s budget (exit 137)
+SP006 shutdown-deadline  FAIL  killed by SIGKILL at the end of the 30s budget (exit 137);
+the process never shut itself down
 ```
 
 The image's own `CMD` is `/bin/sh -c "… && gunicorn …"` — no `exec`, so the
@@ -127,8 +128,8 @@ that shuts down correctly, where the only findings are the two the zero-config
 path structurally cannot answer. SP004 warns rather than fails, because with no
 configuration there is no drain claim to hold the image to. SP005 comes back
 INCONCLUSIVE: with no `--inflight-path`, readiness is the fallback target, and
-this fixture's readiness answers in 0.6ms against 0.6ms of probe-path jitter —
-a ratio of 1.0x where 10x is required. Both readings are per-run properties of
+this fixture's readiness answers in 0.2ms against 0.1ms of probe-path jitter —
+a ratio of 1.7x where 10x is required. Both readings are per-run properties of
 the host, so the ratio in the file is the one that run measured, not a constant.
 The output names it and the fix.
 

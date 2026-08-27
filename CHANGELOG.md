@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checkout, whose lockfile carries packages nobody who runs
   `pip install preflightkit` receives, so none of them could see the sniffio
   defect below — for one release, on every machine.
+- `validate` rejects a `contracts.startup.budget` that is not shorter than
+  `timeouts.startup`, with exit 2 and a message naming both numbers. The budget
+  only warns; the timeout aborts the run with exit 3 and nothing measured, so
+  ordered the wrong way round every container slow enough to exceed the budget
+  is killed before SP001 can say so and `over_budget` is unreachable code. The
+  ordering was documentation until now.
 - SP003's static reading reads the effective command: `target.command` when the
   configuration sets one, the image's `Cmd` when it does not, with `cmd_source`
   in the evidence naming which of the two it was. Docker replaces the image
@@ -64,6 +70,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preflightkit ships against being missing is a broken installation, which no
   fallback repairs and which the next run would repeat — publishing a
   permanently degraded measurement as though the environment had asked for it.
+- `timeouts.startup` defaults to 90s, up from 30s. It is the wall the run dies
+  against, not a threshold it warns about, so it is sized off the slowest
+  legitimate startup this project has measured — 26180.60ms for service-a
+  against cold ephemeral dependencies on native Linux — with 3x headroom. The
+  old default cleared that reading by 1.15x, close enough that one cold
+  dependency turned a measurable run into an infrastructure error.
+  `contracts.startup.budget` is unchanged at 15s and still only warns.
+- The note that explains an empty in-flight window prints only when requests
+  were actually issued. A precondition can refuse SP005 before the long-request
+  phase runs, and the candidate verdict computed over that skipped phase still
+  reaches the report as evidence — carrying "0 of 0 requests finished before the
+  signal. The window closed early" next to the refusal, where it reads as a
+  second, competing cause for the same INCONCLUSIVE.
+- The note attached to a precondition refusal says only why the candidate is in
+  evidence. It used to open "The experiment and traffic measurement completed",
+  which the refusing path is in no position to claim: on the readiness-fallback
+  refusal neither the baseline nor the long requests ever ran.
 - CI pins `actions/upload-artifact` at v7.0.1 and `actions/download-artifact`
   at v8.0.1. Both were still on the v4 line, which runs on Node 20; the pair has
   to move together because `publish.yml` uploads the distribution in one job and

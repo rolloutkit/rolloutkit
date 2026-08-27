@@ -5,27 +5,27 @@ measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_2HPCXMJA6I
+preflightkit 0.1.0   run pfk_U7NLGB3VZ4
 Target: service-b:latest
 Profile: kubernetes, grace 30s, drain none -> shutdown budget 30s
 
 STARTUP
-  startup resolution                          365ms
-  TCP :8000 open                              11.42s
-  GET /healthz/ -> 200                        11.89s
+  startup resolution                          182ms
+  TCP :8000 open                              6.32s
+  GET /healthz/ -> 200                        6.76s
   PID 1 signal disposition                    sh, no SIGTERM handler - the kernel will discard it
 
 BASELINE (before the signal)
   GET /healthz/ x25                           25/25 ok -> 200
-  request duration p50 / p90                  7.44ms / 7.93ms
+  request duration p50 / p90                  6.84ms / 7.38ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            +29974ms (±50ms)
+  T2  last new connection accepted            +30017ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 11.89s (budget 15s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.69ms, max 
-118ms)
+  SP001 startup                PASS   ready in 6.76s (budget 15s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.57ms, max 
+88ms)
   SP003 signal-handling        FAIL   shutdown never started: PID 1 (sh) showed no reaction to 
 SIGTERM
         - The entrypoint is shell-form (/bin/sh -c ...). The shell becomes PID 1 and may not forward
@@ -40,13 +40,11 @@ child of an init that forwards signals.
 rollouts can send traffic to a process that is shutting down. Add a preStop sleep, or test 
 application-owned draining with --drain in_app
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
-  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.7ms, jitter 0.3ms, ratio 2.5x is below 
+  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.6ms, jitter 0.2ms, ratio 3.1x is below 
 the required 10x; the in-flight window cannot be distinguished from measurement noise — point 
 --inflight-path at a slower endpoint
-        - 0 of 0 requests finished before the signal. The window closed early: lower 
-contracts.inflight.sigterm_after, or leave it unset and let it be derived from the baseline p50.
-        - The experiment and traffic measurement completed, but this unresolved candidate was not 
-published because its precondition did not hold.
+        - A candidate verdict was computed and kept in evidence, but not published: this contract's 
+precondition did not hold.
   SP006 shutdown-deadline      FAIL   killed by SIGKILL at the end of the 30s budget (exit 137); the
 process never shut itself down
         - Budget is terminationGracePeriod (30s) minus preStop (0ms). The hook is spent from the 
@@ -54,12 +52,12 @@ same window.
         - In Kubernetes this is the point where every open connection is severed, whatever is still 
 running.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 4.30 | probe sidecar | probe-path jitter 
-~0.3ms | teardown not_calibrated
-  Timestamps come from monotonic_ns; application-facing observations are precise to about 0.3ms at 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.75 | probe sidecar | probe-path jitter 
+~0.2ms | teardown not_calibrated
+  Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (30309ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 30326ms.
+  T4 is the daemon's own kill->die pair (30165ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 30188ms.
 
 Result: 2 FAIL, 1 WARN
 Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 

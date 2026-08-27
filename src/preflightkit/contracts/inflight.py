@@ -248,7 +248,17 @@ def _closed_early_note(report: RunReport) -> list[str]:
 
 
 def _window_notes(report: RunReport) -> list[str]:
-    """Say out loud whether the window is wide enough to be believed."""
+    """Say out loud whether the window is wide enough to be believed.
+
+    The note is about a window the run actually opened, so it asks whether the
+    run opened one. `sigterm_after_ms` is not that question: it is set inside
+    the in-flight phase, which is the only reason a `None` check has held so
+    far, and moving that assignment one line earlier — or setting it from a
+    plan rather than from the phase — would have this note describing a window
+    nothing was measured through, in a ratio against jitter that means nothing.
+    """
+    if not report.inflight_measurement_enabled:
+        return []
     jitter = report.measurement_jitter_ms
     window = report.sigterm_after_ms
     if not jitter or window is None:

@@ -319,6 +319,7 @@ def test_readiness_fallback_resolves_when_both_clauses_pass() -> None:
 
 _CLOSED_EARLY = "The window closed early"
 _EXPERIMENT_CLAIM = "The experiment and traffic measurement completed"
+_COIN_TOSS = "partly a coin toss"
 
 
 def test_refused_fallback_describes_only_the_refusal() -> None:
@@ -376,6 +377,47 @@ def test_a_genuinely_empty_window_keeps_the_closed_early_note() -> None:
     assert (result.status, result.branch) == (Status.ERROR, "nothing_in_flight")
     assert any("1 of 1 requests finished" in note for note in result.notes)
     assert any(_CLOSED_EARLY in note for note in result.notes)
+
+
+def _narrow_window_report() -> RunReport:
+    """A window that is real but too narrow to be believed: 1ms over 0.5ms."""
+    report = _finished_report()
+    report.ping_latencies_ns = [500_000] * 5
+    report.sigterm_after_ms = 1
+    report.sigterm_after_source = "config"
+    return report
+
+
+def test_a_narrow_window_is_called_a_coin_toss() -> None:
+    """The direction the note exists for: measured window, poor ratio."""
+    report = _narrow_window_report()
+    report.inflight_measurement_enabled = True
+
+    result = _by_id(report)["SP005"]
+
+    assert any(_COIN_TOSS in note for note in result.notes)
+    assert any("1ms against 0.50ms" in note for note in result.notes)
+
+
+def test_no_window_note_is_printed_for_a_window_nothing_measured() -> None:
+    """The invariant, bound to the flag rather than to an assignment order.
+
+    `sigterm_after_ms` is only ever set inside the in-flight phase, so a `None`
+    check happened to hold — the note was correct because of where one line
+    sits in `lifecycle`, not because of anything it says. Set the window from
+    a plan, or hoist that assignment above the phase, and the note starts
+    quoting a ratio against jitter for an experiment that never ran. It is
+    `inflight_measurement_enabled` that says whether a window was opened, and
+    that is what the note now asks.
+    """
+    report = _narrow_window_report()
+    report.inflight_measurement_enabled = False
+
+    result = _by_id(report)["SP005"]
+
+    assert not any(_COIN_TOSS in note for note in result.notes), (
+        "the window note described a window the run never opened"
+    )
 
 
 def test_none_drain_warns_even_when_shutdown_never_started() -> None:

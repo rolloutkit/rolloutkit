@@ -5,57 +5,55 @@ measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_KGDG4SD7EE
+preflightkit 0.1.0   run pfk_J6OR6EUJVI
 Target: service-b:latest
 Profile: kubernetes, grace 30s, drain in_app -> shutdown budget 30s
 
 STARTUP
-  startup resolution                          187ms
-  TCP :8000 open                              6.25s
-  GET /healthz/ -> 200                        6.69s
+  startup resolution                          186ms
+  TCP :8000 open                              6.38s
+  GET /healthz/ -> 200                        6.82s
   PID 1 signal disposition                    gunicorn, SIGTERM handler installed
 
 BASELINE (before the signal)
   GET /api/subjects/ x25                      25/25 ok -> 200
-  request duration p50 / p90                  112ms / 162ms
+  request duration p50 / p90                  120ms / 172ms
   sigterm_after (from config)                 300ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            -249ms (±50ms)
+  T2  last new connection accepted            -199ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 6.69s (budget 1m0s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.63ms, max 
-98ms)
+  SP001 startup                PASS   ready in 6.82s (budget 1m0s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.6ms, max 
+109ms)
   SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
-290ms
-        - The entrypoint is shell-form (/bin/sh -c ...). The shell becomes PID 1 and may not forward
-SIGTERM to the application. Use exec-form (JSON array) or `exec` the process.
+283ms
         - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
 the measurement would describe tini, not your app.
   SP004 drain-window           INCONCLUSIVE  accept window not measured: the probe was still busy on
-an earlier connection for the 249ms before T0 (`explain SP004` for why, --format json for the 
+an earlier connection for the 199ms before T0 (`explain SP004` for why, --format json for the 
 attempts)
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
         - The experiment and traffic measurement completed, but this unresolved candidate was not 
 published because its precondition did not hold.
-  SP005 inflight-completion    FAIL   4/51 completed, 47 destroyed
-        request #51 reset_before_response during awaiting_response +74ms
-        request #52 reset_before_response during awaiting_response +75ms
-        request #54 reset_before_response during awaiting_response +75ms
-        request #55 reset_before_response during awaiting_response +74ms
-        request #56 reset_before_response during awaiting_response +75ms
-        ... and 42 more destroyed requests (--format json lists every one)
-  SP006 shutdown-deadline      PASS   exited in 290ms of 30s
+  SP005 inflight-completion    FAIL   4/48 completed, 44 destroyed
+        request #43 reset_before_response during awaiting_response +71ms
+        request #50 reset_before_response during awaiting_response +71ms
+        request #53 reset_before_response during awaiting_response +71ms
+        request #56 reset_before_response during awaiting_response +71ms
+        request #57 reset_before_response during awaiting_response +71ms
+        ... and 39 more destroyed requests (--format json lists every one)
+  SP006 shutdown-deadline      PASS   exited in 283ms of 30s
         - Budget is terminationGracePeriod (30s) minus preStop (0ms). The hook is spent from the 
 same window.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.32 | probe sidecar | probe-path jitter 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.07 | probe sidecar | probe-path jitter 
 ~0.2ms | teardown not_calibrated
   Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (290ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 297ms.
+  T4 is the daemon's own kill->die pair (283ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 289ms.
 
 Result: 1 FAIL
 Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 

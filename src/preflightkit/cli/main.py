@@ -25,7 +25,7 @@ from preflightkit.evidence.redact import Redactor
 from preflightkit.evidence.model import Session
 from preflightkit.reporters import json_out, junit, terminal
 from preflightkit.provenance import preflightkit_commit
-from preflightkit.runtime.docker import DockerError
+from preflightkit.runtime.docker import DockerError, ProbePackagingError
 from preflightkit.runtime.socket import DockerUnavailable
 
 app = typer.Typer(
@@ -63,7 +63,14 @@ class MeasureFormat(StrEnum):
 
 
 #: Failures that mean "the experiment could not run", wherever they surface.
-INFRASTRUCTURE = (DockerUnavailable, InfrastructureError, DockerError)
+#: `ProbePackagingError` is one of them and is also caught on its own below, so
+#: that a broken installation is not reported as a bad afternoon for Docker.
+INFRASTRUCTURE = (
+    DockerUnavailable,
+    InfrastructureError,
+    DockerError,
+    ProbePackagingError,
+)
 
 
 def _leaves(exc: BaseException) -> list[BaseException]:
@@ -457,6 +464,9 @@ def _run(config: Config, *, repeat: int, evaluate: bool) -> Session:
                 progress=lambda message: err_console.print(message),
             )
         )
+    except ProbePackagingError as exc:
+        err_console.print(f"[bold red]broken installation[/]\n{exc}")
+        raise typer.Exit(ExitCode.INFRASTRUCTURE_ERROR) from exc
     except INFRASTRUCTURE as exc:
         err_console.print(f"[bold red]infrastructure error[/]\n{exc}")
         _print_logs(config, getattr(exc, "logs", ""))

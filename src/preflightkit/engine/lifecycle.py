@@ -37,6 +37,13 @@ from preflightkit.traffic.accept_probe import (
 from preflightkit.traffic.generator import run_long_requests
 from preflightkit.contracts.inflight import fallback_resolution_cause
 
+#: A sidecar that will not start for one of these reasons is a fact about this
+#: host — rootless Docker, an unroutable container IP, a daemon that refused —
+#: and the run answers it by measuring from the host and printing what that
+#: cost. `ProbePackagingError` is deliberately absent: it says the installation
+#: is broken, which no fallback repairs and which the next run would repeat.
+PROBE_FALLBACK = (DockerError, httpx.HTTPError, TimeoutError)
+
 READINESS_WATCH_INTERVAL_MS = 20
 
 #: Where phase announcements go. None in tests and in embedded use.
@@ -105,7 +112,7 @@ async def run_experiment(
             report.probe_location = "sidecar"
             report.probe_image = config.probe.image
             report.port_proxy_likely = False
-        except (DockerError, httpx.HTTPError, TimeoutError) as exc:
+        except PROBE_FALLBACK as exc:
             report.probe_location = "host_fallback"
             report.probe_fallback_reason = str(exc) or type(exc).__name__
             report.probe_image = config.probe.image

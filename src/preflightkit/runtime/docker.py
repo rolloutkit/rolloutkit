@@ -84,6 +84,24 @@ class DockerError(Exception):
     """A Docker operation failed. Maps to exit code 3."""
 
 
+class ProbePackagingError(Exception):
+    """The probe payload could not be assembled out of this installation.
+
+    Deliberately not a `DockerError`, because the run must not answer it the way
+    it answers one. Every DockerError raised on the way to a sidecar is a
+    statement about the host — rootless Docker, a container IP this machine
+    cannot route to, a daemon that refused — and measuring from the host instead
+    is the right answer to those: it costs precision, the report says so, and a
+    different machine would not have needed it.
+
+    This is the other kind. A module preflightkit ships against is missing, so no
+    host would have worked and the next run will not either. Falling back would
+    publish a permanently degraded measurement as though the environment had
+    asked for it, which is how a release went out whose sidecar never started for
+    anyone. Exit code 3, before a container exists.
+    """
+
+
 class DockerRuntime:
     def __init__(
         self,
@@ -336,6 +354,11 @@ class DockerRuntime:
         dependencies into a bounded tmpfs. No registry-hosted preflightkit image,
         Docker socket, or host filesystem mount is involved.
         """
+        # Built before anything is pulled or created: it reads only this
+        # installation, and a payload that cannot be assembled is a broken
+        # install rather than a Docker problem. Failing here means no image was
+        # pulled and no container exists to clean up.
+        archive = _traffic_probe_archive()
         await self.ensure_image(image, purpose="probe")
         port_key = f"{SIDECAR_CONTROL_PORT}/tcp"
         body = _traffic_probe_body(image, network_name, name)
@@ -366,7 +389,6 @@ class DockerRuntime:
                 container_ip=str(network_info["IPAddress"]),
                 published_port=int(mapping[0]["HostPort"]),
             )
-            archive = _traffic_probe_archive()
             async with httpx.AsyncClient(
                 base_url=f"http://{container.host}:{container.host_port}", timeout=15
             ) as control:
@@ -727,6 +749,56 @@ def json_lines(payload: bytes) -> list[dict[str, Any]]:
     return result
 
 
+#: Pure-Python dependencies copied into the probe beside preflightkit's own
+#: modules. The sidecar has no network and no package index, so everything anyio
+#: reaches for has to travel with it in the tar.
+_PROBE_PACKAGES = ("anyio", "idna")
+
+#: Packaged when the installation has them, skipped when it does not. anyio
+#: imports sniffio inside a `try`/`except ImportError` and assumes asyncio
+#: without it, which is the backend the probe runs on — and sniffio stopped
+#: being an anyio requirement, so a clean `pip install preflightkit` has none.
+#: Requiring it meant every such installation failed to build this payload and
+#: measured from the host instead, silently, on every run it would ever make.
+_PROBE_PACKAGES_OPTIONAL = ("sniffio",)
+
+
+def _missing_dependency(package: str) -> str:
+    return (
+        f"the traffic probe payload needs {package}, and this installation of "
+        f"preflightkit does not have it. That is the installation, not this "
+        f"machine: no host would have started a sidecar and the next run would "
+        f"not either, so the run stops here rather than reporting the weaker "
+        f"host-side measurement as if you had chosen it. Reinstall preflightkit "
+        f"(`pip install --force-reinstall preflightkit`)."
+    )
+
+
+def _drop_cache(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    return None if "__pycache__" in Path(info.name).parts else info
+
+
+def _add_vendored(archive: tarfile.TarFile, package: str, *, required: bool) -> None:
+    """Copy one installed package into the payload.
+
+    `required` is passed rather than read back out of the module lists, so that
+    moving a name between them changes behaviour. It did not once: the skip was
+    keyed on membership of the optional list, and a name in both was still
+    skipped — which made the test for it pass against the bug it was written to
+    catch.
+    """
+    spec = importlib.util.find_spec(package)
+    if spec is None or not spec.submodule_search_locations:
+        if not required:
+            return
+        raise ProbePackagingError(_missing_dependency(package))
+    archive.add(
+        Path(next(iter(spec.submodule_search_locations))),
+        arcname=f"pfk_probe/vendor/{package}",
+        filter=_drop_cache,
+    )
+
+
 def _traffic_probe_archive() -> bytes:
     """Build the runtime payload copied into the generic probe image."""
     root = Path(__file__).resolve().parents[1]
@@ -751,23 +823,13 @@ def _traffic_probe_archive() -> bytes:
                 else Path("pfk_probe/vendor/preflightkit") / relative
             )
             archive.add(source, arcname=str(destination), recursive=False)
-        for package in ("anyio", "sniffio", "idna"):
-            spec = importlib.util.find_spec(package)
-            if spec is None or not spec.submodule_search_locations:
-                raise DockerError(f"cannot package traffic probe dependency {package}")
-            source = Path(next(iter(spec.submodule_search_locations)))
-
-            def filter_cache(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
-                return None if "__pycache__" in Path(info.name).parts else info
-
-            archive.add(
-                source,
-                arcname=f"pfk_probe/vendor/{package}",
-                filter=filter_cache,
-            )
+        for package in _PROBE_PACKAGES:
+            _add_vendored(archive, package, required=True)
+        for package in _PROBE_PACKAGES_OPTIONAL:
+            _add_vendored(archive, package, required=False)
         typing_spec = importlib.util.find_spec("typing_extensions")
         if typing_spec is None or typing_spec.origin is None:
-            raise DockerError("cannot package traffic probe dependency typing_extensions")
+            raise ProbePackagingError(_missing_dependency("typing_extensions"))
         archive.add(
             Path(typing_spec.origin),
             arcname="pfk_probe/vendor/typing_extensions.py",

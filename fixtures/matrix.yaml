@@ -29,6 +29,12 @@ images:
   - name: pfk-fixture-wrapper
     context: stdlib-http
     dockerfile: Dockerfile.wrapper
+  - name: pfk-fixture-shell-exec
+    context: stdlib-http
+    dockerfile: Dockerfile.shell-exec
+  - name: pfk-fixture-shell-noexec
+    context: stdlib-http
+    dockerfile: Dockerfile.shell-noexec
   - name: pfk-go-nosignal
     context: go-http/nosignal
   - name: pfk-fixture-drain-window
@@ -243,6 +249,44 @@ fixtures:
       SP003: {status: FAIL, branch: signal_discarded}
       SP005: {status: INCONCLUSIVE, branch: shutdown_never_started}
       SP006: {status: FAIL, branch: past_deadline}
+
+  # One image shape, two spellings of it, and the reason SP003's static note is
+  # conditional. `notes_absent`/`notes_present` are asserted by
+  # tests/test_fixtures.py: a status and a branch cannot see this defect,
+  # because both rows are decided by branches that were already correct.
+  - name: shell-form-exec-suppresses-the-note
+    image: pfk-fixture-shell-exec
+    config: stdlib-http/shell-form-exec.yaml
+    description: >
+      `sh -c "exec python -u app.py"`. Shell-form to `docker inspect`, and the
+      shell is gone by the time the signal is sent: PID 1 is python with its own
+      SIGTERM handler. The report used to print the measurement and a note
+      denying it, one above the other. Runtime evidence outranks a static
+      reading, so the note is withheld and the disposition line stands alone.
+    expect:
+      SP001: {status: PASS, branch: within_budget}
+      SP003: {status: PASS, branch: shutdown_observed}
+      SP005: {status: SKIP, branch: disabled}
+      SP006: {status: PASS, branch: within_budget}
+    notes_absent:
+      SP003: ["shell-form"]
+
+  - name: shell-form-without-exec-keeps-the-note
+    image: pfk-fixture-shell-noexec
+    config: stdlib-http/shell-form-no-exec.yaml
+    description: >
+      The same line without `exec`. The shell stays as PID 1, the kernel
+      discards SIGTERM against its default disposition, and the application's
+      own handler is unreachable behind it. The note describes what was
+      measured, so it stays — this row is what stops the suppression above from
+      becoming "never warn about shell-form".
+    expect:
+      SP001: {status: PASS, branch: within_budget}
+      SP003: {status: FAIL, branch: signal_discarded}
+      SP005: {status: SKIP, branch: disabled}
+      SP006: {status: FAIL, branch: past_deadline}
+    notes_present:
+      SP003: ["shell-form"]
 
   - name: baseline-500
     image: pfk-fixture-stdlib

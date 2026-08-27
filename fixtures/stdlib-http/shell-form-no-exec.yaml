@@ -1,0 +1,34 @@
+# The other half of the pair: the same shell form with `exec` left out.
+#
+# The shell keeps PID 1 with a default SIGTERM disposition, so the kernel
+# discards the signal and the application — which did install a handler, as a
+# child where it cannot help — never hears it. The static note is right here,
+# the runtime evidence agrees with it, and it has to stay.
+#
+# The budget is short on purpose: the finding does not get truer for waiting.
+version: 1
+
+target:
+  image: pfk-fixture-shell-noexec
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 4s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  inflight: null
+  startup:
+    budget: 15s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

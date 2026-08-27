@@ -35,6 +35,7 @@ def _report(
     stop_signal: str | None = None,
     pid1: Pid1Facts | None = None,
     readiness_changed: bool = False,
+    cmd: list[str] | None = None,
 ) -> RunReport:
     deployment = Deployment(termination_grace_period=budget)
     config = Config(target=Target(image="example:latest", port=8000), deployment=deployment)
@@ -48,6 +49,8 @@ def _report(
         report.readiness_drop_ns = report.sigterm_ns + 10_000_000
     if stop_signal:
         report.image_config = {"StopSignal": stop_signal}
+    if cmd is not None:
+        report.image_config = {**report.image_config, "Cmd": cmd}
     report.pid1 = pid1
     return report
 
@@ -57,6 +60,17 @@ def _report(
 _NO_HANDLER = Pid1Facts(comm="python", sig_caught=0x2, sig_ignored=0, sig_blocked=0)
 _HANDLER = Pid1Facts(comm="uvicorn", sig_caught=0x4002, sig_ignored=0, sig_blocked=0)
 _IGNORED = Pid1Facts(comm="app", sig_caught=0x2, sig_ignored=0x4000, sig_blocked=0)
+
+#: Shell-form spellings, and what `/proc/1/status` reports for each. Taken from
+#: `docker run python:3.12-slim`: with `exec` the kernel names PID 1 `python`,
+#: without it the shell is still there and names itself `sh`.
+_SHELL_EXEC_CMD = ["/bin/sh", "-c", "exec python -u app.py"]
+_SHELL_CMD = ["/bin/sh", "-c", "python -u app.py"]
+_SHELL_PID1 = Pid1Facts(comm="sh", sig_caught=0x2, sig_ignored=0, sig_blocked=0)
+#: A shell that keeps PID 1 and traps the signal — `entrypoint.sh`'s shape.
+_SHELL_TRAPS = Pid1Facts(comm="sh", sig_caught=0x4002, sig_ignored=0, sig_blocked=0)
+
+_SHELL_NOTE = "shell-form"
 
 
 def test_sp001_reports_container_start_overhead_separately() -> None:
@@ -282,6 +296,72 @@ def test_an_unmeasured_disposition_falls_back_rather_than_guessing() -> None:
     assert (result.status, result.branch) == (Status.FAIL, "shutdown_not_started")
     assert result.actual["runtime_handler_installed"] is None
     assert any("docker pull busybox" in note for note in result.notes)
+
+
+def test_a_shell_that_execs_away_withholds_the_shell_form_note() -> None:
+    """The measurement outranks the static reading, which is the whole thesis.
+
+    The report that motivated this printed both: `PID 1 signal disposition
+    gunicorn, SIGTERM handler installed`, and three lines below it a note saying
+    the shell becomes PID 1 and may not forward SIGTERM. `sh -c "exec ..."` is
+    shell-form to `docker inspect` and correct in fact — the shell replaced
+    itself before the first request. A tool that argues runtime evidence beats
+    static inference may not then contradict its own measurement in a footnote.
+    """
+    result = SignalContract().evaluate(_report(cmd=_SHELL_EXEC_CMD, pid1=_HANDLER))
+    assert result.evidence["cmd_shell_form"] is True
+    assert result.actual["pid1"] == "uvicorn"
+    assert result.actual["runtime_handler_installed"] is True
+    assert not any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_a_shell_form_without_exec_keeps_the_note() -> None:
+    """PID 1 is still the shell, so the note describes what was measured."""
+    result = SignalContract().evaluate(
+        _report(cmd=_SHELL_CMD, pid1=_SHELL_PID1, exit_code=137)
+    )
+    assert result.branch == "signal_discarded"
+    assert any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_a_shell_that_traps_the_signal_still_keeps_the_note() -> None:
+    """Both halves of the suppression are required, and this is why.
+
+    A forwarding wrapper installs a handler while remaining PID 1, so the
+    handler mask alone would clear it. But the note's claim is about the shell
+    holding PID 1 and what it does with the signal, and here the shell does hold
+    PID 1 — the application is a child, where a default disposition still kills
+    it. `comm` is checked first for exactly this shape.
+    """
+    result = SignalContract().evaluate(_report(cmd=_SHELL_CMD, pid1=_SHELL_TRAPS))
+    assert result.actual["runtime_handler_installed"] is True
+    assert any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_an_unmeasured_pid1_leaves_the_shell_form_note_standing() -> None:
+    """No `/proc/1/status` is not evidence of anything.
+
+    With nothing measured there is nothing to overturn the static reading, and
+    withholding the note here would trade a contradiction for a silence — the
+    worse of the two, because the reader cannot see it happen.
+    """
+    result = SignalContract().evaluate(_report(cmd=_SHELL_EXEC_CMD, pid1=None))
+    assert result.actual["runtime_handler_installed"] is None
+    assert any(_SHELL_NOTE in note for note in result.notes)
+
+
+def test_a_shell_that_execs_into_a_process_with_no_handler_keeps_the_note() -> None:
+    """The shell is gone and nothing is listening. Silence would be wrong.
+
+    Suppression is not "the exec worked"; it is "the signal reaches something
+    that installed a handler". SP003 has a stronger verdict for this shape, but
+    the note may not be withheld on a report where it has not been earned.
+    """
+    result = SignalContract().evaluate(
+        _report(cmd=_SHELL_EXEC_CMD, pid1=_NO_HANDLER, exit_code=137)
+    )
+    assert result.branch == "signal_discarded"
+    assert any(_SHELL_NOTE in note for note in result.notes)
 
 
 def test_the_duration_prefers_the_daemons_own_clock() -> None:

@@ -72,6 +72,26 @@ def _assert_the_window_was_real(entry: dict, result: dict) -> None:
     )
 
 
+def _assert_notes(entry: dict, results: dict[str, dict]) -> None:
+    """Rows may pin a note as present or absent, by substring.
+
+    Status and branch cannot express this. The shell-form pair is the case that
+    forced it: both rows reach the branch they always reached, and the defect
+    was a note printed next to a measurement that contradicted it. A matrix that
+    only reads verdicts watches that go past.
+    """
+    for key, present in (("notes_present", True), ("notes_absent", False)):
+        for contract_id, fragments in (entry.get(key) or {}).items():
+            assert contract_id in results, f"{contract_id} was not evaluated"
+            notes = results[contract_id]["notes"]
+            for fragment in fragments:
+                matched = any(fragment in note for note in notes)
+                assert matched is present, (
+                    f"{entry['name']}: {contract_id} note {fragment!r} was "
+                    f"{'absent' if present else 'present'}; notes were {notes}"
+                )
+
+
 def _matrix() -> dict:
     return yaml.safe_load((FIXTURES / "matrix.yaml").read_text())
 
@@ -179,6 +199,8 @@ def test_fixture_matches_the_matrix(
             f"branch — expected {expectation['branch']}, got {result['branch']} "
             f"— {result['summary']}"
         )
+
+    _assert_notes(entry, results)
 
     sp005 = entry["expect"].get("SP005")
     if sp005 and sp005["branch"] in COUNT_DEPENDENT_BRANCHES:

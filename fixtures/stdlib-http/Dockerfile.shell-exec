@@ -1,0 +1,13 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY app.py .
+
+EXPOSE 8000
+# Shell-form, and correct anyway. `exec` replaces the shell with the
+# application, so the shell is gone before the first request and PID 1 is the
+# process that installed the handler. SP003 reads shell-form from the image and
+# reads `python, SIGTERM handler installed` from /proc/1/status; the measurement
+# is the one that describes what would happen, so the static note is withheld.
+ENV HANDLE_SIGTERM=1
+CMD ["/bin/sh", "-c", "exec python -u app.py"]

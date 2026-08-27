@@ -32,6 +32,11 @@ from preflightkit.engine.context import SIGKILL_EXIT, SIGTERM_EXIT, RunReport
 
 _SHELLS = ("/bin/sh", "/bin/bash", "sh", "bash", "/bin/ash", "/usr/bin/env")
 
+#: What `/proc/1/status` calls a shell that is still there. Basenames rather
+#: than the paths in `_SHELLS`: the kernel reports `Name` as the executable's
+#: own name, and busybox reports itself rather than the applet it was invoked as.
+_SHELL_COMMS = frozenset({"sh", "bash", "ash", "dash", "busybox", "ksh", "zsh"})
+
 _EXPECTED = "the application observes SIGTERM and exits on its own"
 
 #: How large the daemon's own reporting cost has to be, as a share of the
@@ -267,9 +272,37 @@ def _measurement_notes(report: RunReport) -> list[str]:
     return notes
 
 
+def _shell_execed_away(report: RunReport) -> bool:
+    """Did the runtime measurement overturn the shell-form reading of the image?
+
+    `sh -c "exec gunicorn ..."` is shell-form by inspection and correct in fact:
+    the shell replaces itself, and the application holds PID 1 with its own
+    handler installed. Printing the warning anyway put two lines in one report
+    that contradict each other — `PID 1 signal disposition  gunicorn, SIGTERM
+    handler installed` immediately above a note saying the shell becomes PID 1
+    and may not forward the signal. This tool's whole argument is that measured
+    behaviour outranks what an image looks like, so the static reading yields
+    here rather than the other way round.
+
+    Both halves are required. A shell still holding PID 1 makes the note true
+    however good the handler mask looks, so `comm` is checked first; and with no
+    handler installed there is nothing to say the signal would reach anything,
+    so the note stands. Unmeasured — no `busybox:latest` to read
+    `/proc/1/status` with — is not evidence, and leaves the static reading in
+    place.
+    """
+    if report.pid1 is None:
+        return False
+    if report.pid1.comm in _SHELL_COMMS:
+        return False
+    return report.runtime_handler_installed is True
+
+
 def _static_notes(report: RunReport, static: dict[str, Any]) -> list[str]:
     notes: list[str] = []
-    if static["entrypoint_shell_form"] or static["cmd_shell_form"]:
+    if (
+        static["entrypoint_shell_form"] or static["cmd_shell_form"]
+    ) and not _shell_execed_away(report):
         notes.append(
             "The entrypoint is shell-form (/bin/sh -c ...). The shell becomes "
             "PID 1 and may not forward SIGTERM to the application. Use exec-form "

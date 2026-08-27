@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `IN_APP_PRECEDENCE` on SP004: the order its in_app clauses are asked in is
   declared worst-first and tested, rather than being whatever order the `if`
   statements happened to be written in.
+- `notes_present` and `notes_absent` in `fixtures/matrix.yaml`, with the two
+  shell-form rows that needed them. A status and a branch cannot express a note
+  printed next to a measurement that contradicts it — both rows reach the branch
+  they always reached.
 
 ### Changed
 
@@ -53,6 +57,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepted connection and T0, not from every attempt after it. Refusals from a
   process that has already exited described the exit, and were reporting a
   listener as gone before a signal it was still serving through.
+- SP003 withholds its shell-form note when the run measured PID 1 to be the
+  application with a SIGTERM handler installed. `sh -c "exec gunicorn ..."` is
+  shell-form to `docker inspect` and sound in fact, and the report was printing
+  `PID 1 signal disposition  gunicorn, SIGTERM handler installed` three lines
+  above a note saying the shell becomes PID 1 and may not forward the signal.
+  Both halves are required to withhold it: a shell still holding PID 1 keeps the
+  note however good the handler mask looks, and an unmeasured `/proc/1/status`
+  is not evidence and leaves the static reading standing.
 
 ## [0.1.0] - 2026-08-26
 

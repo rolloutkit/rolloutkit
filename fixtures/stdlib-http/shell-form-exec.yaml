@@ -1,0 +1,35 @@
+# Shell-form startup that `exec`s, which is shell-form by inspection and sound
+# in fact.
+#
+# The pair this belongs to exists because a report shipped both readings at
+# once: `PID 1 signal disposition  gunicorn, SIGTERM handler installed` and,
+# three lines below it, a note saying the shell becomes PID 1 and may not
+# forward SIGTERM. Only one of those was measured. This row is the case where
+# the measurement overturns the static reading — PID 1 is `python`, the handler
+# is installed, and the note must be absent.
+version: 1
+
+target:
+  image: pfk-fixture-shell-exec
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  inflight: null
+  startup:
+    budget: 15s
+
+timeouts:
+  overall: 120s
+  startup: 30s
+  shutdown: 45s

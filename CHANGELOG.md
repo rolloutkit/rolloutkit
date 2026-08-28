@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measure a fixture with it, and fail unless the report says
   `probe_location: sidecar`. Every other check runs against a repository
   checkout, whose lockfile carries packages nobody who runs
-  `pip install preflightkit` receives, so none of them could see the sniffio
+  `pip install rolloutkit` receives, so none of them could see the sniffio
   defect below — for one release, on every machine.
 - `validate` rejects a `contracts.startup.budget` that is not shorter than
   `timeouts.startup`, with exit 2 and a message naming both numbers. The budget
@@ -49,6 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The project is `rolloutkit`. It was `preflightkit`, and PyPI refused that
+  name: the index compares distribution names with hyphens and underscores
+  removed, so `preflightkit` and the existing `preflight-kit` are one name to
+  it, and `preflight` on its own is taken as well. Everything the name reached
+  moved with it — the distribution, the `rolloutkit` and `rk` commands, the
+  `rolloutkit.yaml` configuration file, the `ROLLOUTKIT_*` environment
+  variables, the `rk_` run-id prefix, `rolloutkit_commit` in the JSON report,
+  the `io.rolloutkit.owned` container label and the `rk-` fixture image tags.
+  Nothing else changed with it, and the old names are not accepted as aliases:
+  0.1.0 was never tagged or published to an index, so there is no installation
+  anywhere that could be reading them.
 - The terminal report prints contract notes whatever the verdict says. They were
   suppressed on PASS and SKIP, which hid the one thing a green SP004 row has to
   say: that connections were reset after its window had already closed.
@@ -67,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or a container IP this machine cannot route to is a fact about the host, and
   measuring from the host is the right answer to it: it costs precision, the
   report says so, and another machine would not have needed it. A module
-  preflightkit ships against being missing is a broken installation, which no
+  rolloutkit ships against being missing is a broken installation, which no
   fallback repairs and which the next run would repeat — publishing a
   permanently degraded measurement as though the environment had asked for it.
 - `timeouts.startup` defaults to 90s, up from 30s. It is the wall the run dies
@@ -128,7 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clean installation starts a sidecar again. anyio dropped sniffio as a
   requirement and imports it under `try`/`except ImportError`, assuming asyncio
   without it — the backend the probe runs on. A clean
-  `pip install preflightkit` therefore had none, failed to assemble the payload
+  `pip install rolloutkit` therefore had none, failed to assemble the payload
   on every run it would ever make, and measured through a published port
   instead, silently: `TCP :8000 open` inconclusive, SP004 unable to measure the
   accept window, and nothing saying why. The repository `.venv` still carried
@@ -156,7 +167,7 @@ working version, not to anything previously published.
 - Per-run and aggregate `phase_durations_ms` timing evidence.
 - Per-run `resolution_calibration` in the JSON report: host identifier, load
   average, probe-path jitter with the location it was measured at, readiness
-  p50, and the ratio between them. What preflightkit can resolve is a property
+  p50, and the ratio between them. What rolloutkit can resolve is a property
   of the host, so choosing a threshold takes readings from several.
 - `--version` output containing both package version and source commit.
 - Phase-by-phase progress on stderr, numbered per run under `--repeat`.
@@ -221,5 +232,5 @@ working version, not to anything previously published.
 - In-flight requests are confirmed on the socket before SIGTERM is sent.
 - Completion evidence includes both counts and `completion_rate`.
 
-[Unreleased]: https://github.com/preflightkit/preflightkit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/preflightkit/preflightkit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/rolloutkit/rolloutkit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/rolloutkit/rolloutkit/releases/tag/v0.1.0

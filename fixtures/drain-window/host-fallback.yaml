@@ -1,7 +1,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-drain-window
+  image: rk-fixture-drain-window
   port: 8000
   env:
     DRAIN_SECONDS: "0"
@@ -10,7 +10,7 @@ target:
 probe:
   # A cached scratch image cannot boot the Python controller. This deliberately
   # exercises host fallback without depending on registry availability.
-  image: pfk-go-nosignal
+  image: rk-go-nosignal
 
 deployment:
   termination_grace_period: 30s

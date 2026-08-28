@@ -1,11 +1,11 @@
 """Fail unless the run in a JSON report was measured from the sidecar.
 
 Run by the wheel-install CI job, against a report produced by an installed
-preflightkit rather than by the repository.
+rolloutkit rather than by the repository.
 
 `probe_location` is the difference between a measurement taken inside the run's
 own network and one taken through a published port from the host, and
-preflightkit steps down from the first to the second by itself when a host
+rolloutkit steps down from the first to the second by itself when a host
 cannot support the first. That is the right behaviour, and it is exactly why the
 step-down cannot also serve as the alarm: a broken installation produced the
 same line as a rootless daemon, and produced it for every user of the release

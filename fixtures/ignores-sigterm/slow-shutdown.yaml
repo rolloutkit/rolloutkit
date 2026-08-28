@@ -5,7 +5,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-ignores
+  image: rk-fixture-ignores
   port: 8000
   env:
     SHUTDOWN_DELAY_MS: "5000"

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from preflightkit.cli.main import FailOn, _blocking_results
-from preflightkit.config.models import (
+from rolloutkit.cli.main import FailOn, _blocking_results
+from rolloutkit.config.models import (
     Config,
     Contracts,
     Deployment,
@@ -13,17 +13,17 @@ from preflightkit.config.models import (
     InflightRequest,
     Target,
 )
-from preflightkit.contracts import ALL_CONTRACTS
-from preflightkit.contracts.base import Status
-from preflightkit.contracts.drain import DrainWindowContract
-from preflightkit.engine.context import RunReport
-from preflightkit.engine.preconditions import evaluate_contracts
-from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.probes.http import ProbeResult
-from preflightkit.reporters import json_out, terminal
-from preflightkit.runtime.base import Pid1Facts, TeardownCalibration
-from preflightkit.traffic.baseline import Baseline, ReadinessBaseline
-from preflightkit.traffic.client import Outcome, RequestResult
+from rolloutkit.contracts import ALL_CONTRACTS
+from rolloutkit.contracts.base import Status
+from rolloutkit.contracts.drain import DrainWindowContract
+from rolloutkit.engine.context import RunReport
+from rolloutkit.engine.preconditions import evaluate_contracts
+from rolloutkit.evidence.model import RunOutcome, Session
+from rolloutkit.probes.http import ProbeResult
+from rolloutkit.reporters import json_out, terminal
+from rolloutkit.runtime.base import Pid1Facts, TeardownCalibration
+from rolloutkit.traffic.baseline import Baseline, ReadinessBaseline
+from rolloutkit.traffic.client import Outcome, RequestResult
 
 SECOND = 1_000_000_000
 
@@ -140,7 +140,7 @@ def test_django_shipped_config_cannot_pass_sp005() -> None:
     }
 
     outcome = RunOutcome(report=report, results=list(results.values()))
-    session = Session(run_id="pfk_test", image="fixture:latest", runs=[outcome])
+    session = Session(run_id="rk_test", image="fixture:latest", runs=[outcome])
     assert {r.id for r in _blocking_results(session, FailOn.ERROR, True)} == {
         "SP003",
         "SP006",
@@ -445,12 +445,12 @@ def test_connection_close_is_not_applicable_without_steady_state_keepalive() -> 
 def test_required_inconclusive_blocks_gating_unless_explicitly_allowed(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PREFLIGHTKIT_COMMIT", "0123456789abcdef")
+    monkeypatch.setenv("ROLLOUTKIT_COMMIT", "0123456789abcdef")
     report = _finished_report()
     report.container_start_overhead_ms = 752.0
     report.baseline = _baseline(500)
     outcome = RunOutcome(report=report, results=evaluate_contracts(report, ALL_CONTRACTS))
-    session = Session(run_id="pfk_test", image="fixture:latest", runs=[outcome])
+    session = Session(run_id="rk_test", image="fixture:latest", runs=[outcome])
     console = Console(record=True, width=140)
 
     terminal.render(session, "test", console)
@@ -459,7 +459,7 @@ def test_required_inconclusive_blocks_gating_unless_explicitly_allowed(
     assert "1 required contract did not produce a verdict" in console.export_text()
     assert document["inconclusive"]["count"] == 1
     assert document["required_unmeasured"]["count"] == 1
-    assert document["preflightkit_commit"] == "0123456789abcdef"
+    assert document["rolloutkit_commit"] == "0123456789abcdef"
     assert document["result"] != "INCONCLUSIVE"
     sp005_document = next(
         contract for contract in document["contracts"] if contract["id"] == "SP005"
@@ -492,7 +492,7 @@ def test_required_skip_blocks_gating_unless_explicitly_allowed() -> None:
     report.teardown_floor_ms = report.teardown_calibration.floor_ms
     report.readiness_baseline = _readiness_baseline()
     outcome = RunOutcome(report=report, results=evaluate_contracts(report, ALL_CONTRACTS))
-    session = Session(run_id="pfk_test", image="fixture:latest", runs=[outcome])
+    session = Session(run_id="rk_test", image="fixture:latest", runs=[outcome])
 
     sp005 = outcome.by_id()["SP005"]
     assert sp005.required is True

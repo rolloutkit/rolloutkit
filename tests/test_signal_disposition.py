@@ -11,13 +11,13 @@ from __future__ import annotations
 import anyio
 import pytest
 
-from preflightkit.runtime.base import (
+from rolloutkit.runtime.base import (
     Container,
     DaemonEvent,
     daemon_interval_ms,
     parse_proc_status,
 )
-from preflightkit.runtime.docker import DockerRuntime
+from rolloutkit.runtime.docker import DockerRuntime
 
 SIGTERM = 15
 SIGINT = 2
@@ -97,7 +97,7 @@ def test_unreadable_input_is_no_measurement_rather_than_a_wrong_one(text: str) -
 
 
 def test_the_probe_degrades_when_no_probe_image_is_present() -> None:
-    """preflightkit does not pull. A diagnosis that quietly reached the network
+    """rolloutkit does not pull. A diagnosis that quietly reached the network
     would make an offline run behave differently from an online one."""
 
     async def scenario() -> None:
@@ -110,7 +110,7 @@ def test_the_probe_degrades_when_no_probe_image_is_present() -> None:
         container = Container(id="abc", name="c", host="127.0.0.1", host_port=1)
         assert await runtime.probe_pid1(container) is None
         assert await runtime.measure_teardown_floor(
-            port=8000, network_name="pfk-test", publish_port=False
+            port=8000, network_name="rk-test", publish_port=False
         ) is None
 
     anyio.run(scenario)
@@ -128,14 +128,14 @@ def test_teardown_calibration_uses_five_samples_and_measured_spread() -> None:
             nonlocal calls
             calls += 1
             assert port == 8000
-            assert network_name == "pfk-test"
+            assert network_name == "rk-test"
             assert publish_port is False
             assert timeout_ms == 15_000
             return next(samples)
 
         runtime._measure_teardown_once = measure_once  # type: ignore[method-assign]
         calibration = await runtime.measure_teardown_floor(
-            port=8000, network_name="pfk-test", publish_port=False
+            port=8000, network_name="rk-test", publish_port=False
         )
 
         assert calibration is not None

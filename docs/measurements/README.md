@@ -23,6 +23,12 @@ The checkout path is stripped from the recorded command line on the way out,
 because these files are committed and a checkout path carries a username. The
 batch file on disk keeps it. Nothing else is filtered.
 
+The summaries below were captured before the project was renamed from
+`preflightkit`, so their `command:` and `image:` lines name the old executable
+and the old fixture tags. They are left as captured. Editing them would have
+each file report a command line that did not exist at the `tool:` commit it
+names, which is the one thing these files are committed to prevent.
+
 The two Linux sets were produced by `workflow_dispatch` runs of
 `.github/workflows/measure.yml`; those runs are recorded in `docs/ci-runs.md`,
 because a run ID stops resolving when the repository it belongs to is deleted.

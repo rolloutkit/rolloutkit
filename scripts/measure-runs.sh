@@ -2,7 +2,7 @@
 #
 # Run one prediction N times and put the readings in a table.
 #
-# Two constants in preflightkit are floors that describe the machine rather than
+# Two constants in rolloutkit are floors that describe the machine rather than
 # the target: MIN_JITTER_RATIO, which decides whether a readiness window can be
 # told apart from measurement noise, and the teardown stddev multiplier, which
 # decides whether a shutdown budget can be told apart from the daemon's own
@@ -25,23 +25,23 @@
 # the image and its flags after `--`.
 #
 # Usage:
-#   scripts/measure-runs.sh -c ../service-a/preflightkit.yaml -n 5
-#   scripts/measure-runs.sh -n 5 -- pfk-fixture-good --port 8000 --ready-url /ready
-#   scripts/measure-runs.sh -c ../service-b/preflightkit.yaml -l loaded -o /tmp/b
+#   scripts/measure-runs.sh -c ../service-a/rolloutkit.yaml -n 5
+#   scripts/measure-runs.sh -n 5 -- rk-fixture-good --port 8000 --ready-url /ready
+#   scripts/measure-runs.sh -c ../service-b/rolloutkit.yaml -l loaded -o /tmp/b
 #
 # Options:
-#   -c FILE    config file, passed to `preflightkit test --config`
+#   -c FILE    config file, passed to `rolloutkit test --config`
 #   -n N       number of runs (default 5)
 #   -o DIR     output directory (default measurements/<host>-<label>-<stamp>)
 #   -l LABEL   free-text tag for the batch, e.g. idle / loaded / ci
 #   -k         keep going after a failed run (default: stop)
 #   -h         this help
 #
-# Anything after `--` is appended to the `preflightkit test` command line.
+# Anything after `--` is appended to the `rolloutkit test` command line.
 #
 # Environment:
-#   PFK        the command to invoke (default: `uv run preflightkit` inside a
-#              checkout, `preflightkit` otherwise)
+#   RK        the command to invoke (default: `uv run rolloutkit` inside a
+#              checkout, `rolloutkit` otherwise)
 
 set -euo pipefail
 
@@ -84,16 +84,16 @@ fi
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
-if [ -n "${PFK:-}" ]; then
-  # Deliberately word-split: PFK is a command line, not a single binary.
+if [ -n "${RK:-}" ]; then
+  # Deliberately word-split: RK is a command line, not a single binary.
   # shellcheck disable=SC2206
-  pfk=($PFK)
+  rk=($RK)
 elif [ -f "$repo_root/pyproject.toml" ] && command -v uv >/dev/null 2>&1; then
-  pfk=(uv run --project "$repo_root" preflightkit)
-elif command -v preflightkit >/dev/null 2>&1; then
-  pfk=(preflightkit)
+  rk=(uv run --project "$repo_root" rolloutkit)
+elif command -v rolloutkit >/dev/null 2>&1; then
+  rk=(rolloutkit)
 else
-  echo "measure-runs: no preflightkit on PATH and no uv to run it with; set PFK" >&2
+  echo "measure-runs: no rolloutkit on PATH and no uv to run it with; set RK" >&2
   exit 2
 fi
 
@@ -119,7 +119,7 @@ if [ -z "$outdir" ]; then
 fi
 mkdir -p "$outdir"
 
-cmd=("${pfk[@]}" test --format json)
+cmd=("${rk[@]}" test --format json)
 [ -n "$config" ] && cmd+=(--config "$config")
 cmd+=("${passthrough[@]+"${passthrough[@]}"}")
 

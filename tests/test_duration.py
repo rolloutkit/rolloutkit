@@ -1,6 +1,6 @@
 import pytest
 
-from preflightkit.config.duration import (
+from rolloutkit.config.duration import (
     DurationError,
     format_measured_ms,
     format_ms,

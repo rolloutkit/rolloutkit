@@ -1,6 +1,6 @@
 version: 1
 target:
-  image: pfk-backlog-reset
+  image: rk-backlog-reset
   port: 8000
   env:
     STOP_ACCEPT_AFTER_MS: "1800"

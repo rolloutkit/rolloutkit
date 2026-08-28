@@ -11,13 +11,13 @@ import anyio
 import httpx
 import pytest
 
-from preflightkit.config.loader import load_config
-from preflightkit.config.models import Config, Deployment, Target
-from preflightkit.engine.context import RunReport
-from preflightkit.engine.lifecycle import _calibrate
-from preflightkit.runtime.base import Container, ContainerSpec
-from preflightkit.runtime.base import TeardownCalibration
-from preflightkit.runtime.docker import (
+from rolloutkit.config.loader import load_config
+from rolloutkit.config.models import Config, Deployment, Target
+from rolloutkit.engine.context import RunReport
+from rolloutkit.engine.lifecycle import _calibrate
+from rolloutkit.runtime.base import Container, ContainerSpec
+from rolloutkit.runtime.base import TeardownCalibration
+from rolloutkit.runtime.docker import (
     PROBE_IMAGE,
     DockerError,
     DockerRuntime,
@@ -50,7 +50,7 @@ def test_linux_target_uses_custom_network_ip_without_publishing() -> None:
                 {
                     "Name": "/target",
                     "NetworkSettings": {
-                        "Networks": {"pfk-run": {"IPAddress": "172.30.0.3"}},
+                        "Networks": {"rk-run": {"IPAddress": "172.30.0.3"}},
                         "Ports": {"8000/tcp": None},
                     },
                 },
@@ -62,7 +62,7 @@ def test_linux_target_uses_custom_network_ip_without_publishing() -> None:
             ContainerSpec(
                 image="target:test",
                 port=8000,
-                network_name="pfk-run",
+                network_name="rk-run",
                 network_aliases=("target",),
                 publish_port=False,
             )
@@ -71,9 +71,9 @@ def test_linux_target_uses_custom_network_ip_without_publishing() -> None:
         assert container.host == "172.30.0.3"
         assert container.host_port == 8000
         assert container.published_port is None
-        assert bodies[0]["HostConfig"]["NetworkMode"] == "pfk-run"
+        assert bodies[0]["HostConfig"]["NetworkMode"] == "rk-run"
         assert "PortBindings" not in bodies[0]["HostConfig"]
-        assert bodies[0]["NetworkingConfig"]["EndpointsConfig"]["pfk-run"] == {
+        assert bodies[0]["NetworkingConfig"]["EndpointsConfig"]["rk-run"] == {
             "Aliases": ["target"]
         }
 
@@ -100,7 +100,7 @@ def test_desktop_target_uses_published_fallback_but_keeps_custom_bridge() -> Non
                 {
                     "Name": "/target",
                     "NetworkSettings": {
-                        "Networks": {"pfk-run": {"IPAddress": "172.30.0.3"}},
+                        "Networks": {"rk-run": {"IPAddress": "172.30.0.3"}},
                         "Ports": {
                             "8000/tcp": [
                                 {"HostIp": "127.0.0.1", "HostPort": "49152"}
@@ -116,14 +116,14 @@ def test_desktop_target_uses_published_fallback_but_keeps_custom_bridge() -> Non
             ContainerSpec(
                 image="target:test",
                 port=8000,
-                network_name="pfk-run",
+                network_name="rk-run",
                 publish_port=True,
             )
         )
 
         assert (container.host, container.host_port) == ("127.0.0.1", 49152)
         assert container.container_ip == "172.30.0.3"
-        assert body["HostConfig"]["NetworkMode"] == "pfk-run"
+        assert body["HostConfig"]["NetworkMode"] == "rk-run"
         assert "8000/tcp" in body["HostConfig"]["PortBindings"]
 
     anyio.run(scenario)
@@ -156,11 +156,11 @@ def test_missing_image_is_pulled_with_progress(monkeypatch) -> None:
 
 
 def test_traffic_probe_is_restricted_and_has_no_host_mount() -> None:
-    body = _traffic_probe_body("python:3.12-slim", "pfk-run", "probe")
+    body = _traffic_probe_body("python:3.12-slim", "rk-run", "probe")
     host = body["HostConfig"]
 
     assert host["Privileged"] is False
-    assert host["NetworkMode"] == "pfk-run"
+    assert host["NetworkMode"] == "rk-run"
     assert host["ReadonlyRootfs"] is True
     assert host["Memory"] == 128 * 1024 * 1024
     assert host["NanoCpus"] == 500_000_000
@@ -191,7 +191,7 @@ def test_container_that_exits_before_inspect_is_not_leaked() -> None:
                 {
                     "Name": "/fast-exit",
                     "NetworkSettings": {
-                        "Networks": {"pfk-run": {"IPAddress": ""}}
+                        "Networks": {"rk-run": {"IPAddress": ""}}
                     },
                 },
             )
@@ -205,7 +205,7 @@ def test_container_that_exits_before_inspect_is_not_leaked() -> None:
                     image="busybox:latest",
                     port=None,
                     command=["true"],
-                    network_name="pfk-run",
+                    network_name="rk-run",
                 )
             )
         assert ("DELETE", "/containers/fast-exit") in requests
@@ -214,7 +214,7 @@ def test_container_that_exits_before_inspect_is_not_leaked() -> None:
 
 
 def test_services_keep_compose_dns_names_and_env_values(tmp_path: Path) -> None:
-    config_file = tmp_path / "preflightkit.yaml"
+    config_file = tmp_path / "rolloutkit.yaml"
     config_file.write_text(
         """
 target:
@@ -260,7 +260,7 @@ def test_long_budget_skips_all_five_teardown_probe_cycles() -> None:
             async def measure_teardown_floor(self, **kwargs: Any) -> None:
                 raise AssertionError("long budgets must not calibrate")
 
-        await _calibrate(Runtime(), container, report, 8000, "pfk-run", False)  # type: ignore[arg-type]
+        await _calibrate(Runtime(), container, report, 8000, "rk-run", False)  # type: ignore[arg-type]
         assert report.teardown_calibration is None
         assert report.teardown_calibration_status == "not_calibrated"
 
@@ -284,12 +284,12 @@ def test_short_budget_calibrates_in_the_targets_exact_network_shape() -> None:
             async def measure_teardown_floor(self, **kwargs: Any) -> TeardownCalibration:
                 assert kwargs == {
                     "port": 8000,
-                    "network_name": "pfk-run",
+                    "network_name": "rk-run",
                     "publish_port": True,
                 }
                 return TeardownCalibration((80.0, 82.0, 84.0, 86.0, 88.0))
 
-        await _calibrate(Runtime(), container, report, 8000, "pfk-run", True)  # type: ignore[arg-type]
+        await _calibrate(Runtime(), container, report, 8000, "rk-run", True)  # type: ignore[arg-type]
         assert report.teardown_calibration_status == "calibrated"
         assert report.teardown_floor_ms == 84.0
 
@@ -302,7 +302,7 @@ def test_dependency_alias_resolves_on_the_runtime_created_bridge() -> None:
         async with DockerRuntime() as runtime:
             if not await runtime.image_exists("busybox:latest"):
                 pytest.skip("busybox:latest is not present locally")
-            network = await runtime.create_network("pfk-test-service-dns")
+            network = await runtime.create_network("rk-test-service-dns")
             containers: list[Container] = []
             try:
                 dependency = await runtime.start(
@@ -362,7 +362,7 @@ def test_teardown_calibration_measures_a_real_daemon_and_agrees_with_itself() ->
         async with DockerRuntime() as runtime:
             if not await runtime.image_exists(PROBE_IMAGE):
                 pytest.skip(f"{PROBE_IMAGE} is not present locally")
-            network = await runtime.create_network("pfk-test-teardown-floor")
+            network = await runtime.create_network("rk-test-teardown-floor")
             try:
                 calibration = await runtime.measure_teardown_floor(
                     port=8000, network_name=network.name, publish_port=False

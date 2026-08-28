@@ -43,7 +43,7 @@
 #             A service in that band is decided by the machine.
 #
 # The fallback batch runs from an empty directory on purpose. `test` discovers
-# `preflightkit.yaml` from the working directory, and this repository has one at
+# `rolloutkit.yaml` from the working directory, and this repository has one at
 # its root — a sample with a configured in-flight path. Run from the checkout,
 # the batch meant to exercise the fallback would silently exercise the
 # configured path instead and the rows would be mislabelled rather than wrong.
@@ -59,7 +59,7 @@
 #
 # Usage:
 #   scripts/measure-set.sh
-#   scripts/measure-set.sh -n 8 -c service-a=../a/preflightkit.yaml -c service-b=../b/pfk.yaml
+#   scripts/measure-set.sh -n 8 -c service-a=../a/rolloutkit.yaml -c service-b=../b/rolloutkit.yaml
 #   scripts/measure-set.sh -x -n 8 -c readiness-never=fixtures/drain-window/readiness-never.yaml
 #
 # Options:
@@ -142,8 +142,8 @@ if [ "$extras_only" -eq 0 ]; then
   rm -rf "$empty_dir" && mkdir -p "$empty_dir" || exit 2
 
   run_batch fast     "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml"
-  run_batch full     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/preflightkit.yaml"
-  run_batch fallback "$empty_dir" -- pfk-fixture-good --port 8000 --ready-url /ready
+  run_batch full     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/rolloutkit.yaml"
+  run_batch fallback "$empty_dir" -- rk-fixture-good --port 8000 --ready-url /ready
   run_batch slow     "$repo_root" -c "$repo_root/fixtures/good-fastapi-prestop/readiness-fallback-slow.yaml"
   run_batch repeat3  "$repo_root" -c "$repo_root/fixtures/stdlib-http/default-disposition.yaml" -- --repeat 3
 
@@ -156,7 +156,7 @@ if [ "$extras_only" -eq 0 ]; then
     cat > "$sweep_dir/$ms.yaml" <<YAML
 version: 1
 target:
-  image: pfk-fixture-good
+  image: rk-fixture-good
   port: 8000
   env: {READINESS_DELAY_SECONDS: "$seconds"}
 deployment:

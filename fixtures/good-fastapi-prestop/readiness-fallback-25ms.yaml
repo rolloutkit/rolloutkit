@@ -18,7 +18,7 @@
 # clause there and it is still five times clear.
 version: 1
 target:
-  image: pfk-fixture-good
+  image: rk-fixture-good
   port: 8000
   env: {READINESS_DELAY_SECONDS: "0.025"}
 deployment:

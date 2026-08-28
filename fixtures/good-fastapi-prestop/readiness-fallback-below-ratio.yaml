@@ -23,7 +23,7 @@
 # worst case. That is the argument for the row existing, not the ratio alone.
 version: 1
 target:
-  image: pfk-fixture-good
+  image: rk-fixture-good
   port: 8000
 deployment:
   termination_grace_period: 30s

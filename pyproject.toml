@@ -1,5 +1,5 @@
 [project]
-name = "preflightkit"
+name = "rolloutkit"
 version = "0.1.0"
 description = "Measure what a container actually does during startup and shutdown. Evidence, not guesses."
 readme = "README.md"
@@ -17,6 +17,7 @@ keywords = [
     "docker",
     "containers",
     "ci",
+    "rollout",
     "preflight",
     "readiness",
     "testing",
@@ -45,14 +46,14 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/preflightkit/preflightkit"
-Source = "https://github.com/preflightkit/preflightkit"
-Issues = "https://github.com/preflightkit/preflightkit/issues"
-Changelog = "https://github.com/preflightkit/preflightkit/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/rolloutkit/rolloutkit"
+Source = "https://github.com/rolloutkit/rolloutkit"
+Issues = "https://github.com/rolloutkit/rolloutkit/issues"
+Changelog = "https://github.com/rolloutkit/rolloutkit/blob/main/CHANGELOG.md"
 
 [project.scripts]
-preflightkit = "preflightkit.cli.main:app"
-pfk = "preflightkit.cli.main:app"
+rolloutkit = "rolloutkit.cli.main:app"
+rk = "rolloutkit.cli.main:app"
 
 [dependency-groups]
 dev = [
@@ -66,7 +67,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/preflightkit"]
+packages = ["src/rolloutkit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

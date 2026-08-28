@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from preflightkit.config.models import Config, Contracts, ReadinessContract, Target
-from preflightkit.contracts.base import Status
-from preflightkit.contracts.readiness import ReadinessStabilityContract
-from preflightkit.engine.context import RunReport
-from preflightkit.probes.http import ProbeResult
-from preflightkit.traffic.baseline import ReadinessBaseline
+from rolloutkit.config.models import Config, Contracts, ReadinessContract, Target
+from rolloutkit.contracts.base import Status
+from rolloutkit.contracts.readiness import ReadinessStabilityContract
+from rolloutkit.engine.context import RunReport
+from rolloutkit.probes.http import ProbeResult
+from rolloutkit.traffic.baseline import ReadinessBaseline
 
 
 def _sample(

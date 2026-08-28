@@ -7,18 +7,18 @@ from dataclasses import replace
 import pytest
 from rich.console import Console
 
-from preflightkit.config.models import Config, Deployment, Drain, DrainStrategy, Target
-from preflightkit.contracts.base import ContractResult, Status
-from preflightkit.contracts.drain import (
+from rolloutkit.config.models import Config, Deployment, Drain, DrainStrategy, Target
+from rolloutkit.contracts.base import ContractResult, Status
+from rolloutkit.contracts.drain import (
     DrainWindowContract,
     accept_window_unmeasured_reason,
 )
-from preflightkit.engine.context import RunReport
-from preflightkit.engine.preconditions import evaluate_contracts
-from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.reporters import terminal
-from preflightkit.runtime.base import DaemonEvent, TeardownCalibration
-from preflightkit.traffic.accept_probe import AcceptAttempt, AcceptOutcome
+from rolloutkit.engine.context import RunReport
+from rolloutkit.engine.preconditions import evaluate_contracts
+from rolloutkit.evidence.model import RunOutcome, Session
+from rolloutkit.reporters import terminal
+from rolloutkit.runtime.base import DaemonEvent, TeardownCalibration
+from rolloutkit.traffic.accept_probe import AcceptAttempt, AcceptOutcome
 
 SECOND = 1_000_000_000
 
@@ -246,7 +246,7 @@ def test_timeline_and_resolution_are_always_evidence() -> None:
 
 def _render(report: RunReport, result: ContractResult) -> str:
     outcome = RunOutcome(report=report, results=[result])
-    session = Session(run_id="pfk_test", image="fixture:test", runs=[outcome])
+    session = Session(run_id="rk_test", image="fixture:test", runs=[outcome])
     console = Console(record=True, width=140)
     terminal.render(session, "test", console)
     return console.export_text()

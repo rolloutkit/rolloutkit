@@ -82,7 +82,7 @@ jobs:
     # second place a release can be stopped after the tag exists.
     environment:
       name: pypi
-      url: https://pypi.org/p/preflightkit
+      url: https://pypi.org/p/rolloutkit
 
     permissions:
       # The only permission trusted publishing needs, and the reason no secret

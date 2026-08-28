@@ -1,36 +1,36 @@
-$ preflightkit test service-b:latest --port 8000 --ready-url /healthz/ --env ALLOWED_HOSTS='*'
+$ rolloutkit test service-b:latest --port 8000 --ready-url /healthz/ --env ALLOWED_HOSTS='*'
 starting the traffic probe
 starting the target and waiting for readiness: service-b:latest
 measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_U7NLGB3VZ4
+rolloutkit 0.1.0   run rk_6EY4QWULVA
 Target: service-b:latest
 Profile: kubernetes, grace 30s, drain none -> shutdown budget 30s
 
 STARTUP
-  startup resolution                          182ms
-  TCP :8000 open                              6.32s
-  GET /healthz/ -> 200                        6.76s
+  startup resolution                          174ms
+  TCP :8000 open                              6.34s
+  GET /healthz/ -> 200                        6.78s
   PID 1 signal disposition                    sh, no SIGTERM handler - the kernel will discard it
 
 BASELINE (before the signal)
   GET /healthz/ x25                           25/25 ok -> 200
-  request duration p50 / p90                  6.84ms / 7.38ms
+  request duration p50 / p90                  6.06ms / 11ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            +30017ms (±50ms)
+  T2  last new connection accepted            +30009ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 6.76s (budget 15s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.57ms, max 
-88ms)
+  SP001 startup                PASS   ready in 6.78s (budget 15s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.54ms, max 
+86ms)
   SP003 signal-handling        FAIL   shutdown never started: PID 1 (sh) showed no reaction to 
 SIGTERM
         - The entrypoint is shell-form (/bin/sh -c ...). The shell becomes PID 1 and may not forward
 SIGTERM to the application. Use exec-form (JSON array) or `exec` the process.
-        - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
+        - rolloutkit never enables Docker's --init: tini as PID 1 would change signal routing, and 
 the measurement would describe tini, not your app.
         - PID 1 in a container is the init of a PID namespace, and the kernel silently discards 
 signals whose disposition is still the default for it. The application was never woken; a longer 
@@ -40,7 +40,7 @@ child of an init that forwards signals.
 rollouts can send traffic to a process that is shutting down. Add a preStop sleep, or test 
 application-owned draining with --drain in_app
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
-  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.6ms, jitter 0.2ms, ratio 3.1x is below 
+  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.5ms, jitter 0.2ms, ratio 3.1x is below 
 the required 10x; the in-flight window cannot be distinguished from measurement noise — point 
 --inflight-path at a slower endpoint
         - A candidate verdict was computed and kept in evidence, but not published: this contract's 
@@ -52,12 +52,12 @@ same window.
         - In Kubernetes this is the point where every open connection is severed, whatever is still 
 running.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.75 | probe sidecar | probe-path jitter 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 4.10 | probe sidecar | probe-path jitter 
 ~0.2ms | teardown not_calibrated
   Timestamps come from monotonic_ns; application-facing observations are precise to about 0.2ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (30165ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 30188ms.
+  T4 is the daemon's own kill->die pair (30171ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 30185ms.
 
 Result: 2 FAIL, 1 WARN
 Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 

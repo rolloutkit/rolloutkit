@@ -1,6 +1,6 @@
 version: 1
 target:
-  image: pfk-fixture-drain-window
+  image: rk-fixture-drain-window
   port: 8000
   # Keep the reserve well inside the 20% warning band even when listener-close
   # observation moves by several hundred milliseconds on a loaded runner.

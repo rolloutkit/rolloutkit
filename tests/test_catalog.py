@@ -10,10 +10,10 @@ confidently wrong.
 
 from __future__ import annotations
 
-from preflightkit.config.models import DrainStrategy
-from preflightkit.contracts import ALL_CONTRACTS
-from preflightkit.contracts.catalog import ANY_STRATEGY, CATALOG
-from preflightkit.contracts.drain import DrainWindowContract
+from rolloutkit.config.models import DrainStrategy
+from rolloutkit.contracts import ALL_CONTRACTS
+from rolloutkit.contracts.catalog import ANY_STRATEGY, CATALOG
+from rolloutkit.contracts.drain import DrainWindowContract
 
 
 def test_the_catalog_documents_every_contract() -> None:

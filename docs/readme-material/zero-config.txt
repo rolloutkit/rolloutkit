@@ -1,54 +1,54 @@
-$ preflightkit test pfk-go-graceful --port 8000 --ready-url /ready
+$ rolloutkit test rk-go-graceful --port 8000 --ready-url /ready
 starting the traffic probe
-starting the target and waiting for readiness: pfk-go-graceful
+starting the target and waiting for readiness: rk-go-graceful
 measuring the baseline: 25 requests plus keep-alive
 sending SIGTERM and observing the shutdown
 removing the containers and the network
 
-preflightkit 0.1.0   run pfk_BMHBBW4Z34
-Target: pfk-go-graceful
+rolloutkit 0.1.0   run rk_S7M4GDSPU4
+Target: rk-go-graceful
 Profile: kubernetes, grace 30s, drain none -> shutdown budget 30s
 
 STARTUP
-  startup resolution                          179ms
-  TCP :8000 open                              0.91ms
-  GET /ready -> 200                           1.31ms
+  startup resolution                          185ms
+  TCP :8000 open                              2.98ms
+  GET /ready -> 200                           3.36ms
   PID 1 signal disposition                    server, SIGTERM handler installed
 
 BASELINE (before the signal)
   GET /ready x25                              25/25 ok -> 200
-  request duration p50 / p90                  4.93ms / 5.8ms
+  request duration p50 / p90                  5.42ms / 6.42ms
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            -26ms (±50ms)
+  T2  last new connection accepted            +19ms (±50ms)
 
 CONTRACTS
-  SP001 startup                PASS   ready in 1.31ms (budget 15s)
-  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.24ms, max 
-0.5ms)
+  SP001 startup                PASS   ready in 3.36ms (budget 15s)
+  SP002 readiness-stability    PASS   readiness returned 200 for all 10 probes (p50 0.25ms, max 
+0.75ms)
   SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 
-65ms
-        - preflightkit never enables Docker's --init: tini as PID 1 would change signal routing, and
+59ms
+        - rolloutkit never enables Docker's --init: tini as PID 1 would change signal routing, and 
 the measurement would describe tini, not your app.
   SP004 drain-window           WARN   no drain mechanism covers routing propagation; production 
 rollouts can send traffic to a process that is shutting down. Add a preStop sleep, or test 
 application-owned draining with --drain in_app
         - accept_window is resolved to the 50ms probe interval; it is not a continuous timestamp.
-  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.2ms, jitter 0.1ms, ratio 1.7x is below 
+  SP005 inflight-completion    INCONCLUSIVE  readiness p50 0.3ms, jitter 0.1ms, ratio 1.8x is below 
 the required 10x; the in-flight window cannot be distinguished from measurement noise — point 
 --inflight-path at a slower endpoint
         - A candidate verdict was computed and kept in evidence, but not published: this contract's 
 precondition did not hold.
-  SP006 shutdown-deadline      PASS   exited in 65ms of 30s
+  SP006 shutdown-deadline      PASS   exited in 59ms of 30s
         - Budget is terminationGracePeriod (30s) minus preStop (0ms). The hook is spent from the 
 same window.
 
-  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 2.59 | probe sidecar | probe-path jitter 
+  host Darwin 25.5.0 | docker 29.7.2/linux | 11 cpu | load 4.20 | probe sidecar | probe-path jitter 
 ~0.1ms | teardown not_calibrated
   Timestamps come from monotonic_ns; application-facing observations are precise to about 0.1ms at 
 sidecar, not to the nanosecond.
-  T4 is the daemon's own kill->die pair (65ms), one clock with no round trip of ours in it. The 
-timeline above is drawn on our clock, which saw the exit at 99ms.
+  T4 is the daemon's own kill->die pair (59ms), one clock with no round trip of ours in it. The 
+timeline above is drawn on our clock, which saw the exit at 89ms.
 
 Result: 1 WARN
 Warning: 1 required contract did not produce a verdict (1 INCONCLUSIVE). Gating blocks unless 

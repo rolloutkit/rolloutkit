@@ -1,16 +1,16 @@
-from preflightkit.config.models import (
+from rolloutkit.config.models import (
     Config,
     Contracts,
     InflightContract,
     InflightRequest,
     Target,
 )
-from preflightkit.engine.context import RunReport
-from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.evidence.redact import MASK, Redactor, names_a_secret
-from preflightkit.probes.http import ProbeResult
-from preflightkit.reporters import json_out
-from preflightkit.traffic.baseline import ReadinessBaseline
+from rolloutkit.engine.context import RunReport
+from rolloutkit.evidence.model import RunOutcome, Session
+from rolloutkit.evidence.redact import MASK, Redactor, names_a_secret
+from rolloutkit.probes.http import ProbeResult
+from rolloutkit.reporters import json_out
+from rolloutkit.traffic.baseline import ReadinessBaseline
 
 
 def test_masks_secrets_in_nested_structures() -> None:
@@ -107,7 +107,7 @@ def test_readiness_baseline_is_redacted_at_the_top_level() -> None:
         ]
     )
     session = Session(
-        run_id="pfk_test",
+        run_id="rk_test",
         image="example:latest",
         runs=[RunOutcome(report=report, results=[])],
     )

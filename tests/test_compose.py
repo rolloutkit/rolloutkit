@@ -7,8 +7,8 @@ from pathlib import Path
 import yaml
 from typer.testing import CliRunner
 
-from preflightkit.cli.main import app
-from preflightkit.config.loader import load_config
+from rolloutkit.cli.main import app
+from rolloutkit.config.loader import load_config
 
 runner = CliRunner()
 
@@ -56,13 +56,13 @@ volumes:
             "--service",
             "api",
             "--output",
-            str(tmp_path / "preflightkit.yaml"),
+            str(tmp_path / "rolloutkit.yaml"),
         ],
         catch_exceptions=False,
     )
 
     assert result.exit_code == 0
-    generated = tmp_path / "preflightkit.yaml"
+    generated = tmp_path / "rolloutkit.yaml"
     text = generated.read_text()
     document = yaml.safe_load(text)
     assert document["target"]["image"] == "registry.example/api:1.2"
@@ -122,7 +122,7 @@ def test_build_without_image_warns_and_leaves_only_todo_fields(tmp_path: Path) -
 def test_init_refuses_to_overwrite_existing_config(tmp_path: Path) -> None:
     compose = tmp_path / "compose.yaml"
     compose.write_text("services: {api: {image: api:latest, ports: [8000]}}\n")
-    output = tmp_path / "preflightkit.yaml"
+    output = tmp_path / "rolloutkit.yaml"
     output.write_text("keep me\n")
 
     result = runner.invoke(

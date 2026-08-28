@@ -50,7 +50,7 @@ def _document(
     ratio = p50 / jitter if p50 is not None and jitter else None
     return {
         "tool_version": "0.1.0",
-        "preflightkit_commit": "0123456789abcdef",
+        "rolloutkit_commit": "0123456789abcdef",
         "target": {"image": "example:latest", "port": 8000},
         "duration_ms": 38_000.0,
         "phase_durations_ms": {"target_start": 480.0, "calibration": 640.0},
@@ -178,7 +178,7 @@ def test_the_checkout_path_is_not_printed_into_a_committed_summary(
     _batch(tmp_path, _document())
     (tmp_path / "batch.txt").write_text(
         "command: uv run --project /Users/someone/projects/internal-name "
-        "preflightkit test --config "
+        "rolloutkit test --config "
         "/Users/someone/projects/internal-name/fixtures/a.yaml\n"
         "label: fallback\n"
         "uname: Darwin someones-laptop.local 25.5.0\n"
@@ -205,14 +205,14 @@ def test_a_batch_recorded_without_project_is_left_alone(tmp_path: Path, capsys) 
     """
     _batch(tmp_path, _document())
     (tmp_path / "batch.txt").write_text(
-        "command: preflightkit test --format json example:latest --port 8000\n"
+        "command: rolloutkit test --format json example:latest --port 8000\n"
         "label: fast\n"
     )
 
     assert _summariser().main(["summarise_runs.py", str(tmp_path)]) == 0
 
     out = capsys.readouterr().out
-    assert "preflightkit test --format json example:latest --port 8000" in out
+    assert "rolloutkit test --format json example:latest --port 8000" in out
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell harness")

@@ -7,7 +7,7 @@ import errno
 import anyio
 from anyio import BrokenResourceError, EndOfStream
 
-from preflightkit.traffic.accept_probe import AcceptOutcome, probe_new_connection
+from rolloutkit.traffic.accept_probe import AcceptOutcome, probe_new_connection
 
 
 class _Stream:

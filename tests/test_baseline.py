@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from preflightkit.traffic.baseline import summarise
-from preflightkit.traffic.client import Outcome, RequestResult
+from rolloutkit.traffic.baseline import summarise
+from rolloutkit.traffic.client import Outcome, RequestResult
 
 MS = 1_000_000
 

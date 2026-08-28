@@ -11,7 +11,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-wrapper
+  image: rk-fixture-wrapper
   port: 8000
 
 deployment:

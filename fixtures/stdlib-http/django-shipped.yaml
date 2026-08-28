@@ -5,7 +5,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-stdlib
+  image: rk-fixture-stdlib
   port: 8000
   command: ["/bin/sh", "-c", "python -u app.py"]
 

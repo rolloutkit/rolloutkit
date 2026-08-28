@@ -10,7 +10,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-drain-window
+  image: rk-fixture-drain-window
   port: 8000
   env:
     SLOW_SECONDS: "2.5"

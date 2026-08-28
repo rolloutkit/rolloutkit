@@ -1,4 +1,4 @@
-$ preflightkit explain SP005
+$ rolloutkit explain SP005
 SP005 — inflight-completion
 Measures: Measures a steady-state request baseline, launches contracts.inflight.concurrent requests,
 waits until their sockets are confirmed connected, sends SIGTERM while they are still unfinished, 

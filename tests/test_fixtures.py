@@ -26,7 +26,7 @@ from xml.etree import ElementTree as ET
 import pytest
 import yaml
 
-from preflightkit.contracts.inflight import (
+from rolloutkit.contracts.inflight import (
     MIN_JITTER_RATIO,
     MIN_READINESS_WINDOW_MS,
 )
@@ -66,7 +66,7 @@ def _assert_the_window_was_real(entry: dict, result: dict) -> None:
     ratio = result["evidence"]["window"]["jitter_ratio"]
     assert ratio is not None and ratio >= MIN_JITTER_RATIO, (
         f"{entry['name']}: the in-flight window is {ratio}x the measurement "
-        f"jitter, under the {MIN_JITTER_RATIO}x preflightkit itself requires "
+        f"jitter, under the {MIN_JITTER_RATIO}x rolloutkit itself requires "
         "before it will treat the boundary as meaningful. A fixture may not "
         "assert a counted branch from a window the tool would not trust."
     )
@@ -113,7 +113,7 @@ def _docker_available() -> bool:
 
 
 def _cli() -> Path:
-    return Path(sys.executable).parent / "preflightkit"
+    return Path(sys.executable).parent / "rolloutkit"
 
 
 @pytest.fixture(scope="session")
@@ -121,7 +121,7 @@ def built_images() -> None:
     if not _docker_available():
         pytest.skip("no Docker daemon")
     if not _cli().exists():
-        pytest.skip("preflightkit is not installed in this environment")
+        pytest.skip("rolloutkit is not installed in this environment")
     for image in _matrix()["images"]:
         context = FIXTURES / image["context"]
         command = ["docker", "build", "-t", image["name"]]
@@ -303,7 +303,7 @@ def test_configless_one_line_cli_and_required_skip_gate(
     command = [
         str(_cli()),
         "test",
-        "pfk-fixture-good",
+        "rk-fixture-good",
         "--port",
         "8000",
         "--ready-url",

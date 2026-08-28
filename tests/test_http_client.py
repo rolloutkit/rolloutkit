@@ -15,7 +15,7 @@ import anyio
 import pytest
 from anyio.abc import SocketAttribute, SocketStream
 
-from preflightkit.traffic.client import (
+from rolloutkit.traffic.client import (
     Outcome,
     RequestResult,
     perform_request,

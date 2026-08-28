@@ -24,10 +24,10 @@ from pathlib import Path
 
 import pytest
 
-import preflightkit
-from preflightkit.cli.main import INFRASTRUCTURE
-from preflightkit.engine.lifecycle import PROBE_FALLBACK
-from preflightkit.runtime.docker import ProbePackagingError, _traffic_probe_archive
+import rolloutkit
+from rolloutkit.cli.main import INFRASTRUCTURE
+from rolloutkit.engine.lifecycle import PROBE_FALLBACK
+from rolloutkit.runtime.docker import ProbePackagingError, _traffic_probe_archive
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,8 +37,8 @@ def _project() -> dict:
 
 
 def test_the_runtime_version_matches_the_distribution_version() -> None:
-    assert preflightkit.__version__ == _project()["version"], (
-        "src/preflightkit/__init__.py and pyproject.toml disagree about the "
+    assert rolloutkit.__version__ == _project()["version"], (
+        "src/rolloutkit/__init__.py and pyproject.toml disagree about the "
         "version. `--version` reports the first and PyPI publishes the second."
     )
 
@@ -109,7 +109,7 @@ def test_anyio_runs_on_asyncio_without_sniffio() -> None:
 def test_the_probe_payload_builds_without_sniffio(monkeypatch: pytest.MonkeyPatch) -> None:
     """A clean install has no sniffio, and the sidecar has to start anyway.
 
-    sniffio stopped being an anyio requirement, so `pip install preflightkit`
+    sniffio stopped being an anyio requirement, so `pip install rolloutkit`
     resolves without it. Requiring it here meant the payload could not be built,
     the sidecar never started, and every run on every such installation measured
     from the host instead — reported as a fallback the environment had asked
@@ -120,9 +120,9 @@ def test_the_probe_payload_builds_without_sniffio(monkeypatch: pytest.MonkeyPatc
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
         names = archive.getnames()
 
-    assert not any(name.startswith("pfk_probe/vendor/sniffio") for name in names)
-    assert any(name.startswith("pfk_probe/vendor/anyio/") for name in names)
-    assert "pfk_probe/sidecar_entry.py" in names
+    assert not any(name.startswith("rk_probe/vendor/sniffio") for name in names)
+    assert any(name.startswith("rk_probe/vendor/anyio/") for name in names)
+    assert "rk_probe/sidecar_entry.py" in names
 
 
 @pytest.mark.parametrize("package", ["anyio", "idna", "typing_extensions"])

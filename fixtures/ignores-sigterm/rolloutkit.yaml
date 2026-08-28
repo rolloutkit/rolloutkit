@@ -1,0 +1,37 @@
+# SIGTERM is caught and ignored. The process only stops because rolloutkit
+# sends SIGKILL at the end of a deliberately short budget, so the exit code is
+# 137 and everything still in flight dies with it.
+version: 1
+
+target:
+  image: rk-fixture-ignores
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 2s
+  drain:
+    strategy: none
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /slow
+      expected_duration: 5s
+    concurrent: 5
+    # Pinned so the kill lands squarely inside the requests: T0 at 1s, SIGKILL at
+    # 3s, responses due at 5s.
+    sigterm_after: 1s
+
+timeouts:
+  startup: 30s
+  shutdown: 45s

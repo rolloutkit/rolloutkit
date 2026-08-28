@@ -8,7 +8,7 @@ For each image: how long it took to reach a measurable state, what was missing,
 which config field turned out to be necessary.
 
 Historical sections that predate JSON provenance are marked with
-`preflightkit commit: unknown (pre-provenance)`. New measurements must name the
+`rolloutkit commit: unknown (pre-provenance)`. New measurements must name the
 exact harness commit in their section heading.
 
 Unless a historical row explicitly says `probe_location: sidecar`, every
@@ -25,17 +25,28 @@ identity did — so each section still describes the code it always described, b
 the name it uses for that code has to be translated.
 
 The old-to-new table is `docs/commit-map.md`, with the machine-readable two-column
-form in `docs/commit-map.txt`. The same applies to `preflightkit_commit` in every
+form in `docs/commit-map.txt`. The same applies to `rolloutkit_commit` in every
 JSON report written before that date, including all 208 documents in the
 measurement corpus.
 
-Two SHAs here are not preflightkit commits and are unaffected: service-b's source
+**This project was called `preflightkit` until 2026-08-28.** PyPI refused that
+name: the index compares distribution names with hyphens and underscores
+removed, which makes it the same name as the existing `preflight-kit`, and
+`preflight` on its own is taken too. Every section below is written with the new
+name, older ones included, because what they describe is this code under either
+name — the fixture image tags moved from `pfk-` to `rk-` with it. The captured
+outputs are the exception: `docs/runs/*.{txt,json}` and the summaries under
+`docs/measurements/` still name the old executable and the old tags, because
+that is what produced them, and rewriting a transcript would have it report a
+run that never happened.
+
+Two SHAs here are not rolloutkit commits and are unaffected: service-b's source
 commit `efa24f341b58`, and the sidecar-probe spike harness `ece4949723f0`, which
 was never part of this repository.
 
 ---
 
-## service-a (2026-08-21; preflightkit commit: unknown, pre-provenance)
+## service-a (2026-08-21; rolloutkit commit: unknown, pre-provenance)
 
 FastAPI behind `gunicorn -k uvicorn.workers.UvicornWorker --workers 4`,
 `--graceful-timeout 30`. The application uses several external dependencies.
@@ -46,12 +57,12 @@ why the container would not boot.
 ### What was missing
 
 1. **The image did not exist.** `docker compose build` had never been run for
-   this service. preflightkit reported it as an *internal error* (exit 4) rather
+   this service. rolloutkit reported it as an *internal error* (exit 4) rather
    than an infrastructure error (exit 3) — a DockerError escaped `run_session`
    uncaught. **Fixed.**
 
 2. **Startup failures were undiagnosable.** The container died during boot,
-   preflightkit removed it, and the only message was
+   rolloutkit removed it, and the only message was
    `readiness /health/ never returned 200 (ConnectError)`. The actual reason was
    in the container's own log output, which was collected into `report.logs_tail`
    and then thrown away with the report. Reproducing it required running
@@ -66,7 +77,7 @@ why the container would not boot.
 
 4. **The dependency environment was not runnable as supplied.** Multiple
    dependencies were absent or initialized differently from the target's
-   configuration. These were target-environment failures, not preflightkit
+   configuration. These were target-environment failures, not rolloutkit
    verdicts, but the tool had to preserve enough startup evidence to distinguish
    them from readiness failures.
 
@@ -109,7 +120,7 @@ With SP005 configured, it might.
 
 ---
 
-## service-a, second session (2026-08-21; preflightkit commit: unknown, pre-provenance)
+## service-a, second session (2026-08-21; rolloutkit commit: unknown, pre-provenance)
 
 The first session left SP005 unmeasured. This one measured it, and in doing so
 answered the "assumes a slow endpoint" problem and turned up three reporting
@@ -193,7 +204,7 @@ sub-100ms race, and it is the case `--repeat` exists for. Three repeats
 afterwards were unanimous, so no FLAKY was raised: the flake is rarer than 1-in-3
 and the tool would report a clean FAIL to CI on most days.
 
-### Defects found in preflightkit
+### Defects found in rolloutkit
 
 1. **SP006 returns WARN when the budget was blown.** `margin_ms: -107.5`,
    `sigkill_required: true`, status WARN, summary "only -107ms under the 250ms
@@ -220,7 +231,7 @@ and the tool would report a clean FAIL to CI on most days.
    matches none of those four words and is a credential anyway.
 
 4. **`sigkill_sent` was read as a verdict.** SP003 announced "SIGKILL was
-   required" over an exit code of 0, because it checked what preflightkit did
+   required" over an exit code of 0, because it checked what rolloutkit did
    rather than what ended the process. At a 25s budget the two never diverge; at
    250ms the difference is the whole result.
    **Fixed**: `sigkill_effective = (exit_code == 137)` decides, `sigkill_sent`
@@ -250,7 +261,7 @@ and the tool would report a clean FAIL to CI on most days.
 
 ---
 
-## Fixture matrix, real containers (2026-08-21; preflightkit commit: unknown, pre-provenance)
+## Fixture matrix, real containers (2026-08-21; rolloutkit commit: unknown, pre-provenance)
 
 Nine rows, five images, every declared verdict branch of every contract either
 covered by a fixture or listed with a reason it cannot be reached — and
@@ -281,7 +292,7 @@ Two fixtures now, because they are different findings:
   exit code cannot tell it apart from an app that re-raises SIGTERM after
   cleaning up.
 
-### Defects found in preflightkit (continued)
+### Defects found in rolloutkit (continued)
 
 5. **A grace period of 30 seconds or more produced an internal error.**
    `wait()` long-polls `POST /containers/{id}/wait` and passed `timeout=None` to
@@ -301,11 +312,11 @@ Two fixtures now, because they are different findings:
    meant re-running the session by hand to get a traceback.
    **Fixed**: groups are flattened to their leaves for the message, and a group
    whose leaves are all Docker failures is now classified as infrastructure
-   (exit 3) rather than as a bug in preflightkit (exit 4).
+   (exit 3) rather than as a bug in rolloutkit (exit 4).
 
 ---
 
-## go-http: nosignal / graceful (2026-08-21; preflightkit commit: unknown, pre-provenance)
+## go-http: nosignal / graceful (2026-08-21; rolloutkit commit: unknown, pre-provenance)
 
 Two purpose-built Go fixtures, not images found in the wild: identical
 `net/http` servers on `:8000` (`GET /ready` → 200, `GET /work` → 50ms then 200),
@@ -329,7 +340,7 @@ config surface, and the config surface held — see below.
 
 ### What was missing
 
-1. **`preflightkit measure` does not exist.** The spike ships one command,
+1. **`rolloutkit measure` does not exist.** The spike ships one command,
    `test`. `test --format json` produced everything needed, so nothing was
    blocked, but the command named in the task is not there.
 
@@ -408,7 +419,7 @@ This was meant to be their first independent test. Only one of them exists.
 not anywhere in the source. The PID-1 signal-discard mechanism was written up in
 this file yesterday as a major finding and never became a measurement. The fact
 itself is true here and was verified outside the tool — `ps` in the container's
-PID namespace shows `1 server` — but preflightkit does not report it, cannot key
+PID namespace shows `1 server` — but rolloutkit does not report it, cannot key
 a verdict on it, and gave no hint of it in either run. Given that this same
 mechanism produces exit 2 on Go, silence on Python, and 143 behind an init
 process, a report that never names it is leaving out the variable that explains
@@ -422,7 +433,7 @@ was added for in the negative direction: with the old `sigkill_required` logic
 there was no SIGKILL to misreport here, and the field correctly stayed quiet
 rather than inventing a story about a signal nobody sent.
 
-### Defects found in preflightkit
+### Defects found in rolloutkit
 
 7. **SP003 reports exit 2 as a clean exit.** `SP003 PASS/clean_exit — "exit 2
    after 84ms"`. The branch order is `never_exited` → `killed` (137) →
@@ -456,7 +467,7 @@ rather than inventing a story about a signal nobody sent.
 
 ---
 
-## SP003 redesign and defect 8 (2026-08-22; preflightkit commit: unknown, pre-provenance)
+## SP003 redesign and defect 8 (2026-08-22; rolloutkit commit: unknown, pre-provenance)
 
 Not a new image. This is the session where defects 7 and 8 from the go-http run
 were fixed, and the rule was that neither fix would be designed before the thing
@@ -577,7 +588,7 @@ parts that were being asserted rather than measured.
 
 ---
 
-## service-b (2026-08-22; preflightkit commit: unknown, pre-provenance)
+## service-b (2026-08-22; rolloutkit commit: unknown, pre-provenance)
 
 Django 5.0.6 behind `gunicorn core.wsgi:application --workers 2 --timeout 300`.
 No `-k`, so the **sync** worker class: two requests are served at a time and
@@ -678,7 +689,7 @@ Also worth noting: the close is a **FIN**, not an RST. From a load balancer's
 side these look like orderly closes carrying no response, which is a quieter
 failure than a connection error and easier to miss in upstream metrics.
 
-### Defects found in preflightkit
+### Defects found in rolloutkit
 
 9. **SP005 passes without noticing that no shutdown occurred.** In the as-shipped
    run SP003 reported the signal discarded and SP005 reported `PASS — 56/56`,
@@ -744,7 +755,7 @@ on the runtime-created bridge resolved a generic service alias to the dependency
 container IP; the test is separate from the verdict fixture matrix.
 
 The service-a compose configuration was checked directly. Its internal service
-aliases now remain unchanged in a preflightkit `services:` configuration; host
+aliases now remain unchanged in a rolloutkit `services:` configuration; host
 gateway rewrites are no longer needed for DNS. This is not compose import:
 volumes, compose healthchecks, and `depends_on` conditions still have to be
 represented or prepared explicitly until `init --from-compose`.
@@ -983,7 +994,7 @@ the value as startup resolution.
 
 ---
 
-## SP005 socket-race rerun (2026-08-25; preflightkit commit: 768ce9fb565b91a494334ae5e01cf371790e2b76)
+## SP005 socket-race rerun (2026-08-25; rolloutkit commit: 768ce9fb565b91a494334ae5e01cf371790e2b76)
 
 The three suspect SP005 measurements were repeated three times each after the
 harness began waiting for at least one request to reach its socket before
@@ -995,7 +1006,7 @@ service-b was built from source commit
 `efa24f341b5806915782ff9a360b70480e3bdebf` with the `exec gunicorn`
 counterfactual. service-a used the same anonymized image snapshot as the prior
 field run and fresh isolated Postgres, Redis, and MinIO dependencies. The Go
-graceful fixture was built from the preflightkit commit named in this heading.
+graceful fixture was built from the rolloutkit commit named in this heading.
 
 | Target | Run | SP005 | Completed / in flight at T0 | Issued | Baseline p50 | Jitter |
 |---|---:|---|---:|---:|---:|---:|
@@ -1185,7 +1196,7 @@ Docker-host timing differences recorded by the same probe.
 
 ---
 
-## Product sidecar rerun (2026-08-25; preflightkit commit: ee2ab03b8078e7e9442d0f9937b82b2a363a6764)
+## Product sidecar rerun (2026-08-25; rolloutkit commit: ee2ab03b8078e7e9442d0f9937b82b2a363a6764)
 
 These are new product runs, not the spike harness. Every row used
 `probe_location: sidecar` with the default `python:3.12-slim` probe image. The
@@ -1267,7 +1278,7 @@ not INCONCLUSIVE.
 ### Explicit fallback
 
 On macOS, configuring the deliberately absent image
-`preflightkit-probe-intentionally-missing:never` selected
+`rolloutkit-probe-intentionally-missing:never` selected
 `probe_location: host_fallback`. The report retained the exact local-image
 error in `probe_fallback_reason`, set `port_proxy_likely: true`, and published
 SP004 as `INCONCLUSIVE / port_proxy_likely`. This run used the commit in this
@@ -1275,7 +1286,7 @@ section heading.
 
 ### Product fixture matrix
 
-The final matrix ran at preflightkit commit
+The final matrix ran at rolloutkit commit
 `75366ef1cfc850814288aa4afd928fe4b6e9efde`. Native Linux completed with
 `232 passed, 1 skipped`; macOS completed with `233 passed`. The branch coverage
 check reported no uncovered contract branches.
@@ -1294,7 +1305,7 @@ The immediate-close fixture also closes its listener synchronously in the
 SIGTERM handler. These changes preserve the named branches while moving their
 boundaries well outside host scheduling jitter.
 
-## Prediction duration and phase distribution (2026-08-26; preflightkit commit: 68816b8ecf7e3feda529dcda605fdb8ee4f52dd4 plus the uncommitted phase-progress change)
+## Prediction duration and phase distribution (2026-08-26; rolloutkit commit: 68816b8ecf7e3feda529dcda605fdb8ee4f52dd4 plus the uncommitted phase-progress change)
 
 The spec tolerates a pipeline step of roughly +40s and refuses +5 minutes. That
 number had never been measured since the sidecar, the teardown calibration and
@@ -1365,7 +1376,7 @@ measures 1.72s.
 
 That relation is what decides whether the spec threshold is ever at risk: a
 target whose in-flight endpoint takes longer than about 13s pushes a single
-prediction past 40s, regardless of anything preflightkit does.
+prediction past 40s, regardless of anything rolloutkit does.
 
 ### Shortening options, priced but not implemented
 
@@ -1431,7 +1442,7 @@ names a phase that short-circuits.
 
 ---
 
-## SP005 in-flight window audit (2026-08-26; preflightkit commit: 7d1cc89d11b1e2c9344989162d6334758718cdd5)
+## SP005 in-flight window audit (2026-08-26; rolloutkit commit: 7d1cc89d11b1e2c9344989162d6334758718cdd5)
 
 Triggered by a single `nothing_in_flight` ERROR on `go-runtime-exit-2` during a
 full-suite run (258 tests, 335s). The row expects FAIL / `requests_destroyed`,
@@ -1473,7 +1484,7 @@ by two to three orders of magnitude.
 
 ### Why `expected_duration / sigterm_after` is not the rule to gate on
 
-That ratio is not what preflightkit measures against anything. Gating the matrix
+That ratio is not what rolloutkit measures against anything. Gating the matrix
 on it at 10x would fail `kills-inflight` (5000/2000 = 2.5x, 10/10 in flight,
 never observed to flake) and cannot be evaluated at all for the three rows that
 leave `sigterm_after` unset — those get half the measured p50, so the ratio is
@@ -1530,7 +1541,7 @@ This row cannot be fixed by widening a margin, because it is the one row whose
 expectation requires sitting *below* the rule, and it has no lever left.
 
 Both fallback rows drive the same knob, `READINESS_DELAY_SECONDS` on the shared
-`pfk-fixture-good` image. `readiness-fallback-slow` sets it to 0.2, which puts
+`rk-fixture-good` image. `readiness-fallback-slow` sets it to 0.2, which puts
 p50 at ~200ms against at most 1.7ms of jitter — about 118x, and it can be moved
 further out at will. `readiness-fallback-fast` sets it to nothing, so p50 is the
 container's own floor. The knob only turns one way, and that way is toward the
@@ -1638,7 +1649,7 @@ configurations. "Host identity is the deciding input" was not too strong after
 all; it was measured on the wrong axis. See "Three hosts, pipeline cost, and the
 fallback decision" at the end of this file.
 
-## Watch list and measurement record (2026-08-26; preflightkit commit: 394996b0bd0afb74d7021b3d51db92a3302293ff)
+## Watch list and measurement record (2026-08-26; rolloutkit commit: 394996b0bd0afb74d7021b3d51db92a3302293ff)
 
 ### Watch item: SP001 `within_resolution` is the same one-way knob
 
@@ -1662,7 +1673,7 @@ slides the window; the width is a property of the host's Docker daemon and this
 harness's poll interval, not of anything the fixture declares. A faster image
 does not widen it either — it only moves `startup_duration_ms` within the same
 window, and toward the lower edge. What the image knob does have is a stop: the
-row already runs on `pfk-fixture-stdlib`, `python:3.12-slim` with one stdlib
+row already runs on `rk-fixture-stdlib`, `python:3.12-slim` with one stdlib
 module and no framework import, which is as fast as anything in this repository
 that is still a Python server. If a host pushes readiness past
 `budget + resolution`, the answer that worked in `68c24bd` — pick a faster image
@@ -1683,7 +1694,7 @@ one host under heavy load, not a guarantee.
 
 The row's history is the reason it is on a watch list rather than left alone.
 The budget has been 15s, then 200ms, then 1ms, then 100ms, and the image was
-swapped from `pfk-fixture-good` to `pfk-fixture-stdlib` in `68c24bd`. Four
+swapped from `rk-fixture-good` to `rk-fixture-stdlib` in `68c24bd`. Four
 adjustments to one row, each one correct in isolation, each one a response to a
 failure on a machine that was not the previous machine.
 
@@ -1795,14 +1806,14 @@ this macOS host, roughly fivefold. A constant chosen from either one alone would
 be calibrated to that one. `MIN_JITTER_RATIO` is unchanged and stays unchanged
 until the same block exists for a Linux server, a macOS laptop and a CI runner.
 
-## What the fallback ratio tracks, measured four ways (2026-08-26; preflightkit commit: a738ee65314ae27e399fe70a94484971a11e5eab)
+## What the fallback ratio tracks, measured four ways (2026-08-26; rolloutkit commit: a738ee65314ae27e399fe70a94484971a11e5eab)
 
 Thirty-two predictions of the same zero-config command on one macOS host,
 `Darwin 25.5.0 / docker 29.7.2 / 11cpu`, run with `scripts/measure-runs.sh` in
 four batches of eight. The command is the one whose SP005 verdict has been
 flipping all week:
 
-    preflightkit test pfk-fixture-good --port 8000 --ready-url /ready --format json
+    rolloutkit test rk-fixture-good --port 8000 --ready-url /ready --format json
 
 This was set up to test a specific claim: that the ratio is driven by ambient
 load, that a busy machine separates readiness from jitter better than an idle
@@ -1916,8 +1927,8 @@ already recorded per run.
 
 ### How these were taken
 
-`scripts/measure-runs.sh -n 8 -l <label> -- pfk-fixture-good --port 8000
---ready-url /ready`, from an empty directory so that no `preflightkit.yaml` is
+`scripts/measure-runs.sh -n 8 -l <label> -- rk-fixture-good --port 8000
+--ready-url /ready`, from an empty directory so that no `rolloutkit.yaml` is
 discovered and SP005 takes the readiness fallback. Every document is kept;
 `scripts/summarise_runs.py` prints the duration, resolution and teardown blocks
 with a median row. The host names itself out of `host_id`, so a batch cannot be
@@ -1936,7 +1947,7 @@ from the floor, so nothing needed measuring. The cross-host teardown figure this
 file already carries (237-250ms on Linux, 50.73ms here) still comes from the
 runs that did calibrate.
 
-## Three hosts, pipeline cost, and the fallback decision (2026-08-26; preflightkit commit: 74982e8ca26689947f3142a8bafa53fc91d1c842)
+## Three hosts, pipeline cost, and the fallback decision (2026-08-26; rolloutkit commit: 74982e8ca26689947f3142a8bafa53fc91d1c842)
 
 Eight runs of each batch on each of three conditions, taken with
 `scripts/measure-set.sh` so that every condition ran the same set in the same
@@ -2211,7 +2222,7 @@ and keeps disagreeing with Linux, which refuses it at ratio 8.29. Cross-host
 agreement goes 7/10 to 9/10, not to 10/10. The tenth is not reachable by a guard
 placed below the band, and reaching it was not worth making the guard the rule.
 `MIN_JITTER_RATIO` unchanged at 10. Implemented as
-`MIN_READINESS_WINDOW_MS = 3.0` in `src/preflightkit/contracts/inflight.py`,
+`MIN_READINESS_WINDOW_MS = 3.0` in `src/rolloutkit/contracts/inflight.py`,
 where the ratio and the floor are one function that all three call sites share.
 
 Replayed against all 208 documents, the guard moves **14 of 160** fallback runs,
@@ -2290,7 +2301,7 @@ the gate was never once open across 240 runs.
 
 The set is at fault here, not the tool. Three fixtures in `fixtures/matrix.yaml`
 *do* qualify — `stdlib-http/django-shipped.yaml` at 1000ms, and
-`ignores-sigterm/preflightkit.yaml` and `stdlib-http/baseline-500.yaml` at
+`ignores-sigterm/rolloutkit.yaml` and `stdlib-http/baseline-500.yaml` at
 2000ms — and the Docker matrix runs all three. The floor is therefore measurable
 and is being measured; it is simply not measured by anything in
 `scripts/measure-set.sh`, which was built around the resolution question and
@@ -2338,7 +2349,7 @@ library only and repeats `CURRENT_RATIO = 10.0` deliberately rather than
 importing it, so that re-running the analysis after a threshold change does not
 silently re-score old batches under the new one.
 
-## More jitter samples, and two rows on the default path (2026-08-26; preflightkit commit: 22ed2e768075ba553481e43aa293a242532ba3f9)
+## More jitter samples, and two rows on the default path (2026-08-26; rolloutkit commit: 22ed2e768075ba553481e43aa293a242532ba3f9)
 
 Two questions left over from the fallback rule landing. The first was raised from
 the numbers in the section above: the ratio's denominator is measured from five
@@ -2586,7 +2597,7 @@ helper, now gone — but the general shape is that the catalog is data other cod
 queries, and a query that returns nothing is not a coverage failure, so nothing
 in the coverage file is looking for it.
 
-## A flaky matrix row, and the accept queue it was racing (2026-08-26; preflightkit commit: e9ddd2b7dfb1046edd48548a217120c414dbf14c)
+## A flaky matrix row, and the accept queue it was racing (2026-08-26; rolloutkit commit: e9ddd2b7dfb1046edd48548a217120c414dbf14c)
 
 `in-app-readiness-never-changes` expects `SP004 WARN /
 in_app_readiness_not_signaled`. On 2026-08-26 the Docker matrix reported `FAIL /
@@ -2685,7 +2696,7 @@ The H2 batches are Actions runs `32996171026` and `32998568732`.
 
 ---
 
-## Where post-T0 resets actually land (2026-08-27; preflightkit commit: 7788eb3789e4283b8aa2d23c2a2f384ea79891c6)
+## Where post-T0 resets actually land (2026-08-27; rolloutkit commit: 7788eb3789e4283b8aa2d23c2a2f384ea79891c6)
 
 SP004 failed a run for any reset it saw after T0. The question this batch was
 run to answer is whether that population is one thing or two: whether the
@@ -2798,10 +2809,10 @@ specimen 55ms from a boundary measured with a 50ms probe is measuring the probe.
 same through `.github/workflows/measure.yml` with `standard_set=false` on H2.
 The honest specimen and its configs were built in a scratch directory and are
 not in the repository; what is in the repository is `fixtures/backlog-reset/`,
-whose eight-run batch was taken with `preflightkit test -c
+whose eight-run batch was taken with `rolloutkit test -c
 fixtures/backlog-reset/after-window.yaml --format json` on H1.
 
-## The startup wall, and the measurement that chose it (2026-08-27; preflightkit commit: eb164e9dd7db8512ca4b1d96376d3b536409fdbf)
+## The startup wall, and the measurement that chose it (2026-08-27; rolloutkit commit: eb164e9dd7db8512ca4b1d96376d3b536409fdbf)
 
 `timeouts.startup` was 30s and had never been measured against anything. It is
 not a threshold — crossing it aborts the run with exit 3 and nothing measured,
@@ -2833,7 +2844,7 @@ CPU quota on H1: `docker run --cpus 2` against `service-b:latest`, polling
 `/healthz/` for a 200 on `monotonic_ns`. Five runs: **6.87 / 6.95 / 6.96 / 7.34
 / 7.63s**.
 
-The same image through preflightkit on the same host with no quota at all reads
+The same image through rolloutkit on the same host with no quota at all reads
 **7.16 / 10.05 / 11.89s**. The constrained runs are the *faster* ones, and the
 1.66x spread inside the unconstrained set is wider than the gap between the
 sets. Core count is not what dominates this image's startup; the run's own
@@ -2885,6 +2896,6 @@ The 26180.60ms figure is from this file, not re-measured. The 211.57ms is from
 the `Wheel install` job's own report on the run of commit `eb164e9`. The Django
 readings were taken on H1 (`Darwin 25.5.0 / docker 29.7.2 / 11cpu`) with a
 throwaway script that starts the container directly and polls readiness — no
-preflightkit in the path, so the sidecar and probe cost are excluded by
-construction; the three-run comparison set is preflightkit's own
+rolloutkit in the path, so the sidecar and probe cost are excluded by
+construction; the three-run comparison set is rolloutkit's own
 `startup resolution` line from the readme-material captures.

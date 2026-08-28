@@ -46,9 +46,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from preflightkit.contracts import ALL_CONTRACTS
-from preflightkit.contracts.base import Status
-from preflightkit.contracts.catalog import CATALOG, Evidence
+from rolloutkit.contracts import ALL_CONTRACTS
+from rolloutkit.contracts.base import Status
+from rolloutkit.contracts.catalog import CATALOG, Evidence
 
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "fixtures" / "matrix.yaml"

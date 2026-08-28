@@ -1,6 +1,6 @@
 version: 1
 target:
-  image: pfk-fixture-ignores
+  image: rk-fixture-ignores
   port: 8000
 deployment:
   termination_grace_period: 3s

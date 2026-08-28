@@ -1,0 +1,35 @@
+version: 1
+
+target:
+  image: rk-fixture-kills
+  port: 8000
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+  pre_stop:
+    type: sleep
+    duration: 5s
+  drain:
+    strategy: prestop
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  startup:
+    budget: 15s
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /slow
+      expected_duration: 5s
+    concurrent: 10
+    sigterm_after: 2s
+
+timeouts:
+  startup: 30s
+  shutdown: 45s

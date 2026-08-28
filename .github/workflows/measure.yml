@@ -66,7 +66,7 @@ jobs:
 
       - name: Run the measurement set
         env:
-          PREFLIGHTKIT_COMMIT: ${{ github.sha }}
+          ROLLOUTKIT_COMMIT: ${{ github.sha }}
           # Not interpolated into the command line. A `${{ }}` inside `run:` is
           # substituted before bash sees it, so a dispatch input there is a shell
           # injection with a form around it. Through the environment it is data.

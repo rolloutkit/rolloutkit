@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The repository is not the product. `uv sync` installs the lockfile, which
-    # carries packages nobody who runs `pip install preflightkit` receives, and
+    # carries packages nobody who runs `pip install rolloutkit` receives, and
     # a dependency that had quietly become optional went on being satisfied here
     # long after it stopped being satisfied anywhere else. Every check above this
     # one runs against a checkout, so none of them could see it.
@@ -60,7 +60,7 @@ jobs:
         run: uv build --wheel
 
       # Outside the checkout and built from the wheel alone, so the resolver
-      # answers the question a user's machine asks: what does `preflightkit`
+      # answers the question a user's machine asks: what does `rolloutkit`
       # declare, and what does that actually pull in today.
       - name: Install the wheel into a venv with nothing else in it
         run: |
@@ -74,7 +74,7 @@ jobs:
         run: |
           docker build \
             -f fixtures/stdlib-http/Dockerfile.wrapper \
-            -t pfk-fixture-wrapper \
+            -t rk-fixture-wrapper \
             fixtures/stdlib-http
           docker pull busybox:latest
           docker pull python:3.12-slim
@@ -84,7 +84,7 @@ jobs:
       # can be assembled.
       - name: Measure a fixture with the installed wheel
         run: |
-          "$RUNNER_TEMP/clean/bin/preflightkit" test \
+          "$RUNNER_TEMP/clean/bin/rolloutkit" test \
             -c fixtures/stdlib-http/default-disposition.yaml \
             --format json > run.json
 
@@ -131,7 +131,7 @@ jobs:
 
       - name: Run the Docker matrix
         env:
-          PREFLIGHTKIT_COMMIT: ${{ github.sha }}
+          ROLLOUTKIT_COMMIT: ${{ github.sha }}
         run: uv run pytest -q -m docker
 
       # `if: always()` is the whole point: the run worth keeping is the red one.

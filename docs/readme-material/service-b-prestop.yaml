@@ -1,4 +1,4 @@
-# preflightkit — service-b, judged under the prestop drain profile.
+# rolloutkit — service-b, judged under the prestop drain profile.
 #
 # Django 5.0.6 behind `gunicorn --workers 2` with the *sync* worker class. Two
 # workers means two requests are served at a time and everything else waits in

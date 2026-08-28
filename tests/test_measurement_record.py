@@ -19,17 +19,17 @@ machine happened to run it, which is the failure this record exists to end.
 
 from __future__ import annotations
 
-from preflightkit.config.models import Config, Target
-from preflightkit.contracts.inflight import (
+from rolloutkit.config.models import Config, Target
+from rolloutkit.contracts.inflight import (
     MIN_JITTER_RATIO,
     MIN_READINESS_WINDOW_MS,
 )
-from preflightkit.engine.context import RunReport
-from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.probes.http import ProbeResult
-from preflightkit.reporters import json_out
-from preflightkit.runtime.base import TeardownCalibration
-from preflightkit.traffic.baseline import ReadinessBaseline
+from rolloutkit.engine.context import RunReport
+from rolloutkit.evidence.model import RunOutcome, Session
+from rolloutkit.probes.http import ProbeResult
+from rolloutkit.reporters import json_out
+from rolloutkit.runtime.base import TeardownCalibration
+from rolloutkit.traffic.baseline import ReadinessBaseline
 
 
 def _report(
@@ -65,7 +65,7 @@ def _report(
 
 def _document(*reports: RunReport) -> dict:
     session = Session(
-        run_id="pfk_test",
+        run_id="rk_test",
         image="example:latest",
         runs=[RunOutcome(report=report, results=[]) for report in reports],
     )

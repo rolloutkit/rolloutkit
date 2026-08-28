@@ -1,4 +1,4 @@
-$ preflightkit explain SP004
+$ rolloutkit explain SP004
 SP004 — drain-window
 Measures: Opens a fresh TCP connection to the target every 50ms and sends a real HTTP request on it,
 so the measurement is application accept rather than kernel backlog. Under in_app and none the 

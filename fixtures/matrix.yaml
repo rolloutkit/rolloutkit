@@ -11,40 +11,40 @@
 #      shipped a WARN over a blown budget for exactly that reason: the status was
 #      being checked, the route to it was not.
 #
-# A change here is a deliberate change to what preflightkit claims about
+# A change here is a deliberate change to what rolloutkit claims about
 # behaviour.
 
 images:
-  - name: pfk-fixture-good
+  - name: rk-fixture-good
     context: good-fastapi-prestop
-  - name: pfk-fixture-kills
+  - name: rk-fixture-kills
     context: kills-inflight
-  - name: pfk-fixture-ignores
+  - name: rk-fixture-ignores
     context: ignores-sigterm
-  - name: pfk-fixture-stdlib
+  - name: rk-fixture-stdlib
     context: stdlib-http
-  - name: pfk-fixture-stopsignal
+  - name: rk-fixture-stopsignal
     context: stdlib-http
     dockerfile: Dockerfile.stopsignal
-  - name: pfk-fixture-wrapper
+  - name: rk-fixture-wrapper
     context: stdlib-http
     dockerfile: Dockerfile.wrapper
-  - name: pfk-fixture-shell-exec
+  - name: rk-fixture-shell-exec
     context: stdlib-http
     dockerfile: Dockerfile.shell-exec
-  - name: pfk-fixture-shell-noexec
+  - name: rk-fixture-shell-noexec
     context: stdlib-http
     dockerfile: Dockerfile.shell-noexec
-  - name: pfk-go-nosignal
+  - name: rk-go-nosignal
     context: go-http/nosignal
-  - name: pfk-fixture-drain-window
+  - name: rk-fixture-drain-window
     context: drain-window
-  - name: pfk-backlog-reset
+  - name: rk-backlog-reset
     context: backlog-reset
 
 fixtures:
   - name: readiness-fallback-slow
-    image: pfk-fixture-good
+    image: rk-fixture-good
     config: good-fastapi-prestop/readiness-fallback-slow.yaml
     description: >
       Readiness is deliberately slow enough to separate half its p50 from daemon
@@ -54,7 +54,7 @@ fixtures:
       SP005: {status: PASS, branch: all_completed}
 
   - name: readiness-fallback-25ms
-    image: pfk-fixture-good
+    image: rk-fixture-good
     config: good-fastapi-prestop/readiness-fallback-25ms.yaml
     description: >
       The same resolve as readiness-fallback-slow at 25ms instead of 200ms —
@@ -67,7 +67,7 @@ fixtures:
       SP005: {status: PASS, branch: all_completed}
 
   - name: readiness-fallback-below-ratio
-    image: pfk-fixture-good
+    image: rk-fixture-good
     config: good-fastapi-prestop/readiness-fallback-below-ratio.yaml
     description: >
       Readiness with no delay at all, so the fallback window is the transport
@@ -86,7 +86,7 @@ fixtures:
         - "The experiment and traffic measurement completed"
 
   - name: startup-within-resolution
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: good-fastapi-prestop/startup-within-resolution.yaml
     description: >
       A minimal stdlib listener becomes ready after the nominal 100ms
@@ -96,8 +96,8 @@ fixtures:
       SP001: {status: PASS, branch: within_resolution}
 
   - name: good-fastapi-prestop
-    image: pfk-fixture-good
-    config: good-fastapi-prestop/preflightkit.yaml
+    image: rk-fixture-good
+    config: good-fastapi-prestop/rolloutkit.yaml
     description: >
       uvicorn's default graceful shutdown under a prestop drain strategy, with
       sigterm_after derived from the baseline rather than configured. Everything
@@ -109,8 +109,8 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: kills-inflight
-    image: pfk-fixture-kills
-    config: kills-inflight/preflightkit.yaml
+    image: rk-fixture-kills
+    config: kills-inflight/rolloutkit.yaml
     description: >
       SIGTERM handler calls os._exit(0). Exit code 0 makes the shutdown look
       clean to anything that only inspects the exit code, while every in-flight
@@ -122,7 +122,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: startup-over-budget
-    image: pfk-fixture-good
+    image: rk-fixture-good
     config: good-fastapi-prestop/over-budget.yaml
     description: >
       The good image against a 100ms startup budget it cannot meet. Timing
@@ -134,7 +134,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: nothing-in-flight
-    image: pfk-fixture-good
+    image: rk-fixture-good
     config: good-fastapi-prestop/nothing-in-flight.yaml
     description: >
       Requests aimed at a millisecond endpoint with the signal held back four
@@ -152,8 +152,8 @@ fixtures:
         - "The window closed early"
 
   - name: ignores-sigterm
-    image: pfk-fixture-ignores
-    config: ignores-sigterm/preflightkit.yaml
+    image: rk-fixture-ignores
+    config: ignores-sigterm/rolloutkit.yaml
     description: >
       The signal is caught and ignored. Only SIGKILL stops the process, so the
       exit code is 137 and every open response dies with it. The regression that
@@ -166,7 +166,7 @@ fixtures:
       SP006: {status: FAIL, branch: past_deadline}
 
   - name: reacts-but-killed
-    image: pfk-fixture-ignores
+    image: rk-fixture-ignores
     config: ignores-sigterm/reacts-but-killed.yaml
     description: >
       Readiness drops after SIGTERM, proving the process reacted, but its handler
@@ -175,7 +175,7 @@ fixtures:
       SP003: {status: FAIL, branch: killed}
 
   - name: in-app-shutdown-never-started
-    image: pfk-fixture-ignores
+    image: rk-fixture-ignores
     config: ignores-sigterm/in-app-shutdown-never-started.yaml
     description: >
       An in-app profile is declared but the process shows no readiness, accept,
@@ -186,7 +186,7 @@ fixtures:
       SP006: {status: FAIL, branch: past_deadline}
 
   - name: slow-shutdown
-    image: pfk-fixture-ignores
+    image: rk-fixture-ignores
     config: ignores-sigterm/slow-shutdown.yaml
     description: >
       Same image, five seconds of cleanup, a six second budget. Nothing is
@@ -199,7 +199,7 @@ fixtures:
       SP006: {status: WARN, branch: thin_margin}
 
   - name: pid1-discards-sigterm
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/pid1-discards-sigterm.yaml
     description: >
       A stdlib server with no SIGTERM handler. This row was written expecting
@@ -215,7 +215,7 @@ fixtures:
       SP006: {status: FAIL, branch: past_deadline}
 
   - name: default-disposition
-    image: pfk-fixture-wrapper
+    image: rk-fixture-wrapper
     config: stdlib-http/default-disposition.yaml
     description: >
       The same application behind a signal-forwarding wrapper. The shell holds
@@ -231,8 +231,8 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: go-runtime-exit-2
-    image: pfk-go-nosignal
-    config: go-http/nosignal/preflightkit.yaml
+    image: rk-go-nosignal
+    config: go-http/nosignal/rolloutkit.yaml
     description: >
       A Go net/http server with no signal.Notify of its own, on scratch, as
       PID 1. The Go runtime installs a handler for every signal whether the
@@ -249,7 +249,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: django-shipped-config
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/django-shipped.yaml
     description: >
       Minimal reproduction of the shipped Django shell-form startup. PID 1 is
@@ -271,7 +271,7 @@ fixtures:
   # tests/test_fixtures.py: a status and a branch cannot see this defect,
   # because both rows are decided by branches that were already correct.
   - name: shell-form-exec-suppresses-the-note
-    image: pfk-fixture-shell-exec
+    image: rk-fixture-shell-exec
     config: stdlib-http/shell-form-exec.yaml
     description: >
       `sh -c "exec python -u app.py"`. Shell-form to `docker inspect`, and the
@@ -288,7 +288,7 @@ fixtures:
       SP003: ["shell-form"]
 
   - name: shell-form-without-exec-keeps-the-note
-    image: pfk-fixture-shell-noexec
+    image: rk-fixture-shell-noexec
     config: stdlib-http/shell-form-no-exec.yaml
     description: >
       The same line without `exec`. The shell stays as PID 1, the kernel
@@ -305,7 +305,7 @@ fixtures:
       SP003: ["shell-form"]
 
   - name: baseline-500
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/baseline-500.yaml
     description: >
       The process reacts and exits, but the measured request path returns 500 in
@@ -317,7 +317,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: stopsignal-mismatch
-    image: pfk-fixture-stopsignal
+    image: rk-fixture-stopsignal
     config: stdlib-http/stopsignal-mismatch.yaml
     description: >
       Exits 0 on SIGTERM and still carries a defect: the image declares
@@ -330,7 +330,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: flapping-readiness
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/flapping-readiness.yaml
     description: >
       Readiness alternates between 200 and 503 after startup. Ten sequential
@@ -341,7 +341,7 @@ fixtures:
       SP005: {status: SKIP, branch: disabled}
 
   - name: incorrect-readiness
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/incorrect-readiness.yaml
     description: >
       Startup receives one 200, then readiness stays at 503 throughout the
@@ -351,7 +351,7 @@ fixtures:
       SP005: {status: SKIP, branch: disabled}
 
   - name: identical-readiness-health
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/identical-readiness-health.yaml
     description: >
       Readiness and health return the same stable status, headers, and body, so
@@ -361,7 +361,7 @@ fixtures:
       SP005: {status: SKIP, branch: disabled}
 
   - name: slow-readiness
-    image: pfk-fixture-stdlib
+    image: rk-fixture-stdlib
     config: stdlib-http/slow-readiness.yaml
     description: >
       Every readiness result is correct and stable, but the maximum latency is
@@ -371,7 +371,7 @@ fixtures:
       SP005: {status: SKIP, branch: disabled}
 
   - name: closes-listener-immediately-in-app
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/immediate-in-app.yaml
     description: >
       The listener closes immediately after T0 under an in-app profile. This is
@@ -384,7 +384,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-window-not-measured
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/accept-window-unmeasured.yaml
     description: >
       The listener stops accepting 600ms after the probe's first request and two
@@ -398,7 +398,7 @@ fixtures:
       SP004: {status: INCONCLUSIVE, branch: accept_window_unmeasured}
 
   - name: docker-desktop-host-fallback-port-proxy
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/host-fallback.yaml
     desktop_only: true
     description: >
@@ -409,7 +409,7 @@ fixtures:
       SP004: {status: INCONCLUSIVE, branch: port_proxy_likely}
 
   - name: closes-listener-immediately-prestop
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/immediate-prestop.yaml
     description: >
       The identical listener under preStop. Fast closure is not a defect because
@@ -422,7 +422,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: drains-in-app
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/drains-in-app.yaml
     description: >
       Readiness drops at T0 while the listener remains available beyond the
@@ -435,7 +435,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: drains-in-app-thin-margin
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/thin-margin.yaml
     description: >
       The listener covers a ten-second declared window with roughly one second
@@ -448,7 +448,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: in-app-readiness-never-changes
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/readiness-never.yaml
     description: >
       The listener covers the declared in-app window, but readiness remains 200
@@ -457,7 +457,7 @@ fixtures:
       SP004: {status: WARN, branch: in_app_readiness_not_signaled}
 
   - name: no-drain-declared
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/none.yaml
     description: >
       No drain mechanism is declared, so SP004 warns regardless of listener
@@ -470,7 +470,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-then-reset-in-app
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/reset-in-app.yaml
     description: >
       A socket opened while the declared window is still open completes its
@@ -499,7 +499,7 @@ fixtures:
   # here when its distance from the boundary exceeds the probe's resolution by
   # an order of magnitude, not when it completes a picture.
   - name: backlog-reset-after-window-in-app
-    image: pfk-backlog-reset
+    image: rk-backlog-reset
     config: backlog-reset/after-window.yaml
     description: >
       An ordinary server that keeps its promise: it serves the whole declared
@@ -519,7 +519,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-then-reset-prestop
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/reset-prestop.yaml
     description: >
       Under preStop the new-connection stream stops at T0, matching production
@@ -533,7 +533,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: accept-then-reset-none
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/reset-none.yaml
     description: >
       With no drain strategy declared, SP004 keeps the actionable
@@ -548,7 +548,7 @@ fixtures:
       SP006: {status: PASS, branch: within_budget}
 
   - name: prestop-near-deadline
-    image: pfk-fixture-drain-window
+    image: rk-fixture-drain-window
     config: drain-window/prestop-near-deadline.yaml
     description: >
       preStop makes SP004 listener timing not applicable even when T4 is near the

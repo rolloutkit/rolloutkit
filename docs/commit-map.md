@@ -13,16 +13,18 @@ break is written down here rather than left to be discovered.
 ## What refers to a SHA
 
 - `docs/field-notes.md` dates its sections by the commit the measurements were
-  taken at. Nine distinct preflightkit commits are named there, and all nine are
+  taken at. Nine distinct rolloutkit commits are named there, and all nine are
   in the table below.
 
-  Two further SHAs in that file are **not** preflightkit commits and are not
+  Two further SHAs in that file are **not** rolloutkit commits and are not
   affected by this rewrite: `efa24f341b58` is service-b's own source commit, and
   `ece4949723f0` is the throwaway sidecar-probe spike harness, which never lived
   in this repository. Looking either one up in the map and finding nothing is the
   correct result, not a gap.
-- Every JSON report preflightkit writes carries `preflightkit_commit`, and the
-  measurement corpus on disk holds 208 of them.
+- Every JSON report rolloutkit writes carries `rolloutkit_commit`, and the
+  measurement corpus on disk holds 208 of them. All 208 predate the rename from
+  `preflightkit` and spell that field `preflightkit_commit`; the value is the
+  same SHA under either spelling, and is subject to the same translation.
 - `--version` prints the source commit of the running tool.
 
 A SHA recorded before the rewrite names a commit that no longer exists. It is

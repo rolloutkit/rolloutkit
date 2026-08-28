@@ -3,7 +3,7 @@
 Two behaviours from one image, chosen by `SHUTDOWN_DELAY_MS`:
 
   unset / 0   the SIGTERM handler returns without doing anything. The process
-              never exits, preflightkit's enforcer sends SIGKILL at the end of
+              never exits, rolloutkit's enforcer sends SIGKILL at the end of
               the budget, and the exit code is 137. This is the case SP003 and
               SP006 both have to catch — and the case the old SP006 reported as
               a WARN with a negative margin.

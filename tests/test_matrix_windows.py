@@ -8,7 +8,7 @@ image under test rather than a defect in the fixture. That is the shape of every
 `test: widen …` and `test: stabilize …` commit in this repository's history.
 
 The gates below use the tool's own constants rather than numbers tuned to
-today's runner, so a change to what preflightkit considers resolvable moves the
+today's runner, so a change to what rolloutkit considers resolvable moves the
 fixtures with it. Configs are read through `load_config`, not parsed here, so
 the check cannot drift from the durations the engine actually sees.
 
@@ -25,9 +25,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from preflightkit.config.loader import load_config
-from preflightkit.contracts.inflight import MIN_JITTER_RATIO
-from preflightkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
+from rolloutkit.config.loader import load_config
+from rolloutkit.contracts.inflight import MIN_JITTER_RATIO
+from rolloutkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
@@ -37,7 +37,7 @@ COUNT_DEPENDENT = ("all_completed", "requests_destroyed")
 
 #: How much of the request has to survive T0. A window narrower than the tool's
 #: own resolution floor — the interval it samples accepts at, times the ratio it
-#: demands over measurement noise — is one whose boundary preflightkit itself
+#: demands over measurement noise — is one whose boundary rolloutkit itself
 #: would refuse to trust.
 MIN_SURVIVING_WINDOW_MS = MIN_JITTER_RATIO * ACCEPT_PROBE_INTERVAL_MS
 

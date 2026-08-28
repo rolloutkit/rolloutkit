@@ -12,15 +12,15 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from preflightkit.config.models import Config, Deployment, Target
-from preflightkit.contracts.base import Status
-from preflightkit.contracts.deadline import DeadlineContract
-from preflightkit.contracts.signals import SignalContract
-from preflightkit.contracts.startup import StartupContract
-from preflightkit.engine.context import RunReport
-from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.reporters import terminal
-from preflightkit.runtime.base import DaemonEvent, Pid1Facts
+from rolloutkit.config.models import Config, Deployment, Target
+from rolloutkit.contracts.base import Status
+from rolloutkit.contracts.deadline import DeadlineContract
+from rolloutkit.contracts.signals import SignalContract
+from rolloutkit.contracts.startup import StartupContract
+from rolloutkit.engine.context import RunReport
+from rolloutkit.evidence.model import RunOutcome, Session
+from rolloutkit.reporters import terminal
+from rolloutkit.runtime.base import DaemonEvent, Pid1Facts
 
 SECOND = 1_000_000_000
 
@@ -145,7 +145,7 @@ def test_terminal_exposes_startup_resolution() -> None:
     report.readiness_ok_ns = 4_100_000_000
     report.readiness_status = 200
     outcome = RunOutcome(report=report, results=[StartupContract().evaluate(report)])
-    session = Session(run_id="pfk_test", image="example:latest", runs=[outcome])
+    session = Session(run_id="rk_test", image="example:latest", runs=[outcome])
     console = Console(record=True, width=140)
 
     terminal.render(session, "test", console)

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 #: Where the record goes. Overridable so a local run can keep a batch of its own
 #: without clobbering the last one; CI leaves it at the default and uploads that.
-MATRIX_LOG_ENV = "PREFLIGHTKIT_MATRIX_LOG"
+MATRIX_LOG_ENV = "ROLLOUTKIT_MATRIX_LOG"
 DEFAULT_MATRIX_LOG = ROOT / "matrix-results.jsonl"
 
 
@@ -52,7 +52,7 @@ def _docker_version() -> str:
 
 def _commit() -> str:
     """The commit under test, from CI if it said so and from git otherwise."""
-    for name in ("PREFLIGHTKIT_COMMIT", "GITHUB_SHA"):
+    for name in ("ROLLOUTKIT_COMMIT", "GITHUB_SHA"):
         value = os.environ.get(name, "").strip()
         if value:
             return value

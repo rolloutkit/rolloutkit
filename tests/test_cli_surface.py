@@ -8,15 +8,15 @@ from xml.etree import ElementTree as ET
 import pytest
 from typer.testing import CliRunner
 
-from preflightkit.cli.main import app
-from preflightkit import __version__
-from preflightkit.config.loader import ConfigError, load_config
-from preflightkit.config.models import Config, Target
-from preflightkit.contracts import ALL_CONTRACTS
-from preflightkit.contracts.base import ContractResult, Status
-from preflightkit.engine.context import RunReport
-from preflightkit.evidence.model import RunOutcome, Session
-from preflightkit.reporters import json_out, junit
+from rolloutkit.cli.main import app
+from rolloutkit import __version__
+from rolloutkit.config.loader import ConfigError, load_config
+from rolloutkit.config.models import Config, Target
+from rolloutkit.contracts import ALL_CONTRACTS
+from rolloutkit.contracts.base import ContractResult, Status
+from rolloutkit.engine.context import RunReport
+from rolloutkit.evidence.model import RunOutcome, Session
+from rolloutkit.reporters import json_out, junit
 
 
 runner = CliRunner()
@@ -24,15 +24,15 @@ runner = CliRunner()
 
 def _clear_env(monkeypatch) -> None:
     for name in (
-        "PREFLIGHTKIT_CONFIG",
-        "PREFLIGHTKIT_IMAGE",
-        "PREFLIGHTKIT_PORT",
-        "PREFLIGHTKIT_READY_URL",
-        "PREFLIGHTKIT_INFLIGHT_PATH",
-        "PREFLIGHTKIT_GRACE",
-        "PREFLIGHTKIT_DRAIN",
-        "PREFLIGHTKIT_ENV",
-        "PREFLIGHTKIT_ENV_FILE",
+        "ROLLOUTKIT_CONFIG",
+        "ROLLOUTKIT_IMAGE",
+        "ROLLOUTKIT_PORT",
+        "ROLLOUTKIT_READY_URL",
+        "ROLLOUTKIT_INFLIGHT_PATH",
+        "ROLLOUTKIT_GRACE",
+        "ROLLOUTKIT_DRAIN",
+        "ROLLOUTKIT_ENV",
+        "ROLLOUTKIT_ENV_FILE",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -58,7 +58,7 @@ def test_one_line_configless_defaults(tmp_path: Path, monkeypatch) -> None:
 
 def test_probe_image_can_be_configured(tmp_path: Path, monkeypatch) -> None:
     _clear_env(monkeypatch)
-    path = tmp_path / "preflightkit.yaml"
+    path = tmp_path / "rolloutkit.yaml"
     path.write_text(
         "target: {image: fixture:latest, port: 8000}\n"
         "probe: {image: python:3.13-slim}\n"
@@ -71,7 +71,7 @@ def test_probe_image_can_be_configured(tmp_path: Path, monkeypatch) -> None:
 
 def test_cli_over_env_over_file_over_default(tmp_path: Path, monkeypatch) -> None:
     _clear_env(monkeypatch)
-    config_path = tmp_path / "preflightkit.yaml"
+    config_path = tmp_path / "rolloutkit.yaml"
     config_path.write_text(
         """
 target: {image: file:image, port: 7000}
@@ -82,11 +82,11 @@ probes:
   readiness: {path: /file}
 """.strip()
     )
-    monkeypatch.setenv("PREFLIGHTKIT_IMAGE", "env:image")
-    monkeypatch.setenv("PREFLIGHTKIT_PORT", "7100")
-    monkeypatch.setenv("PREFLIGHTKIT_READY_URL", "/env")
-    monkeypatch.setenv("PREFLIGHTKIT_GRACE", "25s")
-    monkeypatch.setenv("PREFLIGHTKIT_DRAIN", "none")
+    monkeypatch.setenv("ROLLOUTKIT_IMAGE", "env:image")
+    monkeypatch.setenv("ROLLOUTKIT_PORT", "7100")
+    monkeypatch.setenv("ROLLOUTKIT_READY_URL", "/env")
+    monkeypatch.setenv("ROLLOUTKIT_GRACE", "25s")
+    monkeypatch.setenv("ROLLOUTKIT_DRAIN", "none")
 
     env_config = load_config(cwd=tmp_path)
     cli_config = load_config(
@@ -112,7 +112,7 @@ def test_env_follows_cli_over_env_over_file_over_default(
     tmp_path: Path, monkeypatch
 ) -> None:
     """The same order every other option follows, applied to target.env."""
-    config_path = tmp_path / "preflightkit.yaml"
+    config_path = tmp_path / "rolloutkit.yaml"
     config_path.write_text(
         "target:\n"
         "  image: file:image\n"
@@ -126,8 +126,8 @@ def test_env_follows_cli_over_env_over_file_over_default(
     file_only = load_config(config_path=config_path)
 
     _clear_env(monkeypatch)
-    monkeypatch.setenv("PREFLIGHTKIT_ENV", "SHARED=process FROM_PROCESS=process")
-    monkeypatch.setenv("PREFLIGHTKIT_ENV_FILE", str(dotenv))
+    monkeypatch.setenv("ROLLOUTKIT_ENV", "SHARED=process FROM_PROCESS=process")
+    monkeypatch.setenv("ROLLOUTKIT_ENV_FILE", str(dotenv))
     from_process = load_config(config_path=config_path)
 
     # The flags are passed explicitly while the same variables still say
@@ -170,7 +170,7 @@ def test_env_can_be_referenced_from_the_config_it_is_passed_with(
     tmp_path: Path, monkeypatch
 ) -> None:
     _clear_env(monkeypatch)
-    config_path = tmp_path / "preflightkit.yaml"
+    config_path = tmp_path / "rolloutkit.yaml"
     config_path.write_text(
         "target: {image: 'fixture:${TAG}', port: 8000, env: {TAG: '${TAG}'}}\n"
     )
@@ -473,12 +473,12 @@ def test_explain_names_the_branch_a_report_prints(contract_id: str) -> None:
 
 def test_version_flag_includes_package_version_and_commit(monkeypatch) -> None:
     commit = "0123456789abcdef0123456789abcdef01234567"
-    monkeypatch.setenv("PREFLIGHTKIT_COMMIT", commit)
+    monkeypatch.setenv("ROLLOUTKIT_COMMIT", commit)
 
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == f"preflightkit {__version__} ({commit})"
+    assert result.output.strip() == f"rolloutkit {__version__} ({commit})"
 
 
 def test_explain_sp004_names_all_drain_strategies() -> None:
@@ -536,7 +536,7 @@ def test_junit_is_parseable_and_maps_contract_statuses() -> None:
         ContractResult("SP005", "inflight", Status.SKIP, "not configured"),
     ]
     session = Session(
-        run_id="pfk_test",
+        run_id="rk_test",
         image="fixture:latest",
         runs=[RunOutcome(report=report, results=results)],
     )
@@ -567,7 +567,7 @@ def test_json_reports_per_run_and_aggregate_phase_durations() -> None:
     first.phase_durations_ms["teardown"] = 2.5
     second.phase_durations_ms["teardown"] = 3.5
     session = Session(
-        run_id="pfk_phases",
+        run_id="rk_phases",
         image="fixture:latest",
         runs=[RunOutcome(report=first), RunOutcome(report=second)],
     )

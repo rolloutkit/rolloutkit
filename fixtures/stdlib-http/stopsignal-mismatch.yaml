@@ -4,7 +4,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-stopsignal
+  image: rk-fixture-stopsignal
   port: 8000
   env:
     HANDLE_SIGTERM: "1"

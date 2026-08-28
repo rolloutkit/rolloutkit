@@ -9,7 +9,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-shell-noexec
+  image: rk-fixture-shell-noexec
   port: 8000
 
 deployment:

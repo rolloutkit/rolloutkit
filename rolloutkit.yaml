@@ -1,0 +1,87 @@
+# rolloutkit — sample configuration.
+#
+# Durations are always written with a unit: 30s, 500ms, 2m. A bare number is
+# rejected on purpose, because "30" is ambiguous between seconds and
+# milliseconds and getting that wrong silently invalidates the whole experiment.
+#
+# Every value here except `target` has a default. Start by deleting what you do
+# not need — but read the `deployment` block first: it is the profile the image
+# is judged against, and the same image legitimately passes under one profile
+# and fails under another.
+
+version: 1
+
+target:
+  image: myapp:latest
+  port: 8000
+
+  # Passed to the container. Values whose names identify credentials are
+  # redacted from terminal output, JSON reports and collected logs.
+  env:
+    LOG_LEVEL: info
+  # env_file: .env
+
+  # Overrides the image ENTRYPOINT/CMD. Leave unset unless you have to — the
+  # point is to measure the image as it will actually be deployed.
+  # command: ["python", "-m", "myapp"]
+
+# How the platform will terminate this container. This is not a description of
+# what the app does; it is the contract the app has to satisfy.
+deployment:
+  platform: kubernetes
+
+  # terminationGracePeriodSeconds. Counted from the moment the pod is marked for
+  # deletion — not from SIGTERM.
+  termination_grace_period: 30s
+
+  # The preStop hook runs inside the grace period, so its duration is subtracted
+  # from what the application actually gets:
+  #     shutdown_budget = termination_grace_period − pre_stop.duration
+  pre_stop:
+    type: sleep      # none | sleep | exec
+    duration: 5s
+
+  # How traffic is meant to stop arriving before the process goes away:
+  #   prestop — the sleep above covers the async Endpoints removal (most common)
+  #   in_app  — the app itself keeps serving for in_app_window after SIGTERM
+  #   none    — nothing covers the gap; requests are expected to be lost
+  drain:
+    strategy: prestop
+    # in_app_window: 5s   # required when strategy is in_app
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+  # health:
+  #   path: /health
+  #   expected_status: 200
+
+contracts:
+  # SP001 — the container must reach readiness within this budget.
+  startup:
+    budget: 15s
+
+  # SP002 — ten sequential steady-state readiness probes must agree. Latency
+  # over this budget is a warning because host timing is noisy.
+  readiness:
+    latency_budget: 500ms
+
+  # SP005 — requests already in flight when SIGTERM arrives must complete.
+  inflight:
+    mode: long_requests
+    request:
+      method: GET
+      path: /slow
+      # Roughly how long that endpoint takes. Used to size the experiment, and
+      # checked against sigterm_after below.
+      expected_duration: 5s
+    concurrent: 10
+    # SIGTERM is sent this long after the requests start. It must be shorter
+    # than expected_duration, otherwise the requests finish before the signal
+    # arrives and the contract proves nothing.
+    sigterm_after: 2s
+
+timeouts:
+  startup: 30s
+  shutdown: 45s

@@ -10,7 +10,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-shell-exec
+  image: rk-fixture-shell-exec
   port: 8000
 
 deployment:

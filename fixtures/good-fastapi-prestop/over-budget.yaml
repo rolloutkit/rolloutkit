@@ -3,7 +3,7 @@
 version: 1
 
 target:
-  image: pfk-fixture-good
+  image: rk-fixture-good
   port: 8000
   env:
     STARTUP_DELAY_SECONDS: "5"

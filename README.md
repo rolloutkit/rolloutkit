@@ -1,22 +1,22 @@
-# preflightkit
+# rolloutkit
 
 Your service passes its tests. Does it survive a rollout?
 
-`preflightkit` runs your container the way a deployment does — starts it, puts
+`rolloutkit` runs your container the way a deployment does — starts it, puts
 traffic on it, sends SIGTERM, and watches what happens to the requests that were
 in flight. It reports what it measured, with timestamps.
 
 ```
-$ preflightkit test service-b:latest --port 8000 --ready-url /healthz/ --env ALLOWED_HOSTS='*'
+$ rolloutkit test service-b:latest --port 8000 --ready-url /healthz/ --env ALLOWED_HOSTS='*'
 ```
 
 ```
 STARTUP
-  GET /healthz/ -> 200                        6.76s
+  GET /healthz/ -> 200                        6.78s
   PID 1 signal disposition                    sh, no SIGTERM handler - the kernel will discard it
 
 SHUTDOWN TIMELINE
-  T2  last new connection accepted            +30017ms (±50ms)
+  T2  last new connection accepted            +30009ms (±50ms)
 
 CONTRACTS
   SP003 signal-handling        FAIL   shutdown never started: PID 1 (sh) showed no reaction to SIGTERM
@@ -43,15 +43,15 @@ The fix is well known: use exec-form, or `exec` the process. Here is the same im
 after that change:
 
 ```
-  SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 284ms
-  SP005 inflight-completion    FAIL   4/68 completed, 64 destroyed
-        request #35 reset_before_response during awaiting_response +67ms
-        request #38 reset_before_response during awaiting_response +67ms
-        request #39 reset_before_response during awaiting_response +67ms
-        request #40 reset_before_response during awaiting_response +67ms
-        request #41 reset_before_response during awaiting_response +67ms
-        ... and 59 more destroyed requests (--format json lists every one)
-  SP006 shutdown-deadline      PASS   exited in 284ms of 30s
+  SP003 signal-handling        PASS   shutdown started and the process stopped within budget after 291ms
+  SP005 inflight-completion    FAIL   2/74 completed, 72 destroyed
+        request #17 reset_before_response during awaiting_response +61ms
+        request #28 reset_before_response during awaiting_response +61ms
+        request #29 reset_before_response during awaiting_response +61ms
+        request #32 reset_before_response during awaiting_response +62ms
+        request #33 reset_before_response during awaiting_response +61ms
+        ... and 67 more destroyed requests (--format json lists every one)
+  SP006 shutdown-deadline      PASS   exited in 291ms of 30s
 ```
 
 Signal handling is fixed. Shutdown is fast and clean. And the service now destroys
@@ -59,16 +59,16 @@ Signal handling is fixed. Shutdown is fast and clean. And the service now destro
 
 It was doing that before too. The difference is that before, shutdown never started,
 so nothing was ever tested. A passing contract can mean the thing you wanted to test
-did not happen — which is why `preflightkit` refuses to report a verdict it could not
+did not happen — which is why `rolloutkit` refuses to report a verdict it could not
 measure.
 
 ## Install
 
 ```
-uvx preflightkit test my-api:latest --port 8000 --ready-url /ready
+uvx rolloutkit test my-api:latest --port 8000 --ready-url /ready
 ```
 
-or `pipx run preflightkit`, or `pip install preflightkit`.
+or `pipx run rolloutkit`, or `pip install rolloutkit`.
 
 Requires Python 3.12+ and a Docker daemon. Linux gives the most precise timing;
 macOS with Docker Desktop works, and the report says when a measurement was limited
@@ -87,7 +87,7 @@ Six contracts, each of which either measures something or says it could not.
 | **SP005** inflight-completion | do accepted requests finish, or get reset |
 | **SP006** shutdown-deadline | does the process exit inside the grace budget |
 
-`preflightkit explain SP004` prints what a contract measures, which preconditions it
+`rolloutkit explain SP004` prints what a contract measures, which preconditions it
 needs, every verdict it can reach, and what to do first when it fails.
 
 ## Configuration
@@ -101,7 +101,7 @@ version: 1
 target:
   image: my-api:latest
   port: 8000
-  env_file: .env.preflight
+  env_file: .env.rolloutkit
 
 services:                     # dependencies, started on the same network
   db:
@@ -122,7 +122,7 @@ contracts:
     concurrent: 10
 ```
 
-`preflightkit init --from-compose docker-compose.yml --service api` generates most of
+`rolloutkit init --from-compose docker-compose.yml --service api` generates most of
 this from a compose file. It reads the file; it never runs it.
 
 The `deployment` block is not decoration. The same image is correct under one drain
@@ -139,7 +139,7 @@ strategy and broken under another, and SP004 says so:
 
 ```yaml
 - run: docker build -t my-api:latest .
-- run: uvx preflightkit test -c preflightkit.yaml --fail-on error
+- run: uvx rolloutkit test -c rolloutkit.yaml --fail-on error
 ```
 
 Exit codes: `0` pass, `1` a contract failed, `2` bad configuration, `3` the run could

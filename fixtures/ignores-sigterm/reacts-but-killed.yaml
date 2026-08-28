@@ -1,6 +1,6 @@
 version: 1
 target:
-  image: pfk-fixture-ignores
+  image: rk-fixture-ignores
   port: 8000
   env: {READINESS_DROPS_ON_SIGTERM: "1"}
 deployment:

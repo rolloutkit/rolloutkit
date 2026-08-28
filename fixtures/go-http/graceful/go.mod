@@ -1,3 +1,3 @@
-module preflightkit/fixture/go-http-graceful
+module rolloutkit/fixture/go-http-graceful
 
 go 1.23

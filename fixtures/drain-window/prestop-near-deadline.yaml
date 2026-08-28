@@ -1,6 +1,6 @@
 version: 1
 target:
-  image: pfk-fixture-drain-window
+  image: rk-fixture-drain-window
   port: 8000
   # A wide absolute window keeps the intended 16.7% margin clear of daemon
   # event jitter on both Docker Desktop and loaded native-Linux runners.

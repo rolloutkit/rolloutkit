@@ -142,7 +142,7 @@ def main(argv: list[str]) -> int:
     }
     images = {(d.get("target") or {}).get("image") for d in measured}
     versions = {
-        f"{d['tool_version']} ({(d.get('preflightkit_commit') or '?')[:7]})"
+        f"{d['tool_version']} ({(d.get('rolloutkit_commit') or '?')[:7]})"
         for d in measured
         if d.get("tool_version")
     }

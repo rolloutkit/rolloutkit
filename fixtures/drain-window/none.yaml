@@ -1,6 +1,6 @@
 version: 1
 target:
-  image: pfk-fixture-drain-window
+  image: rk-fixture-drain-window
   port: 8000
   env: {DRAIN_SECONDS: "0", EXIT_SECONDS: "0.3"}
 deployment:

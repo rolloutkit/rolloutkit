@@ -16,11 +16,11 @@ import anyio
 import httpx
 import pytest
 
-from preflightkit.runtime.base import Container
-from preflightkit.runtime.docker import DockerError, DockerRuntime
-from preflightkit.runtime.socket import Endpoint
+from rolloutkit.runtime.base import Container
+from rolloutkit.runtime.docker import DockerError, DockerRuntime
+from rolloutkit.runtime.socket import Endpoint
 
-CONTAINER = Container(id="abc123", name="pfk-test", host="127.0.0.1", host_port=8000)
+CONTAINER = Container(id="abc123", name="rk-test", host="127.0.0.1", host_port=8000)
 
 
 class _Recorder:
@@ -88,7 +88,7 @@ def test_a_task_group_wrapper_does_not_hide_what_failed() -> None:
     `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` names
     neither the failure nor the place, and that is what the CLI used to print.
     """
-    from preflightkit.cli.main import _describe, _leaves
+    from rolloutkit.cli.main import _describe, _leaves
 
     inner = ExceptionGroup("inner", [DockerError("POST /wait failed: read timeout")])
     outer = ExceptionGroup("unhandled errors in a TaskGroup", [inner])
@@ -100,7 +100,7 @@ def test_a_task_group_wrapper_does_not_hide_what_failed() -> None:
 
 
 def test_a_daemon_failure_inside_a_task_group_is_still_infrastructure() -> None:
-    from preflightkit.cli.main import INFRASTRUCTURE, _leaves
+    from rolloutkit.cli.main import INFRASTRUCTURE, _leaves
 
     group = ExceptionGroup("boom", [DockerError("daemon went away")])
     assert all(isinstance(leaf, INFRASTRUCTURE) for leaf in _leaves(group))

@@ -153,7 +153,7 @@ host and calibration the run was measured on. `--format junit` is for CI test pa
 
 The tool's own cost is a little over a second — probe preparation, calibration and
 teardown — and the rest of a run is your service starting and the in-flight window
-you asked for. End to end on the laptop these captures come from: 4.2s against a Go
+you asked for. End to end on the laptop these captures come from: 2.0s against a Go
 fixture that starts instantly, 9.4s against the Django service above.
 
 ## What it will not tell you

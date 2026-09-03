@@ -300,6 +300,13 @@ def _dependency_names(
 def _warn_unsupported(
     section: dict[str, Any], label: str, warnings: list[str]
 ) -> None:
+    """Name the keys this import drops, at the point it drops them.
+
+    The three that say "(v0.2)" are scope, not oversight: what each would take
+    is in docs/v0.2.md, "The compose import scope the tool already names to its
+    users". `healthcheck` says no version because v0.1 already has the feature
+    that replaces it.
+    """
     messages = {
         "extends": "extends is not imported (v0.2)",
         "profiles": "profiles are not imported (v0.2)",

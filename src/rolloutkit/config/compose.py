@@ -226,21 +226,51 @@ def _port(name: str, value: Any, warnings: list[str]) -> int | None:
 def _dependency_names(
     name: str, service: dict[str, Any], warnings: list[str]
 ) -> list[str]:
+    """The services to import, with a warning for every one of them.
+
+    No dependency arrives with a gate, whichever form declared it: Compose
+    records what to start before what, never a port, so `wait_for.tcp` is
+    always hand-written. The warning is per dependency rather than per file
+    because it names the field to write, and the field names the service.
+
+    `depends_on: [db]` and `depends_on: {db: {condition: ...}}` are the same
+    omission with different amounts of evidence. The second says the author
+    already knew the dependency needed waiting for and asked Compose to do it,
+    so it gets the sentence that says so; the first gets the plain one. Warning
+    only on the second — which is what this did until a real Compose file
+    turned up using the list form — leaves the common case silent about the
+    thing most likely to make the run blame the wrong container.
+    """
     value = service.get("depends_on")
     if value is None:
         return []
     if isinstance(value, list):
-        return [str(item) for item in value]
-    if isinstance(value, dict):
-        for dependency, settings in value.items():
-            if isinstance(settings, dict) and "condition" in settings:
-                warnings.append(
-                    f"service {name}.depends_on.{dependency}.condition is not "
-                    f"imported; write services.{dependency}.wait_for.tcp with "
-                    f"the port {dependency} listens on to wait for it"
-                )
-        return [str(item) for item in value]
-    raise ConfigError(f"service {name}.depends_on must be a list or mapping")
+        dependencies = [str(item) for item in value]
+        conditioned: set[str] = set()
+    elif isinstance(value, dict):
+        dependencies = [str(item) for item in value]
+        conditioned = {
+            str(dependency)
+            for dependency, settings in value.items()
+            if isinstance(settings, dict) and "condition" in settings
+        }
+    else:
+        raise ConfigError(f"service {name}.depends_on must be a list or mapping")
+
+    for dependency in dependencies:
+        if dependency in conditioned:
+            warnings.append(
+                f"service {name}.depends_on.{dependency}.condition is not "
+                f"imported; write services.{dependency}.wait_for.tcp with "
+                f"the port {dependency} listens on to wait for it"
+            )
+        else:
+            warnings.append(
+                f"service {name} starts after {dependency} but does not wait "
+                f"for it; write services.{dependency}.wait_for.tcp with the "
+                f"port {dependency} listens on"
+            )
+    return dependencies
 
 
 def _warn_unsupported(

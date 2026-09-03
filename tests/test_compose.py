@@ -141,3 +141,59 @@ def test_init_refuses_to_overwrite_existing_config(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "refusing to overwrite" in result.output
     assert output.read_text() == "keep me\n"
+
+
+def test_a_dependency_declared_without_a_condition_still_asks_for_a_gate(
+    tmp_path: Path,
+) -> None:
+    """The list form of `depends_on` is the common one, and it carried no port.
+
+    Compose never carries a port for a dependency, so no form of `depends_on`
+    can produce a gate. The shape that says `condition: service_healthy` was
+    warned about and the shape that says `- db` was not, which left the
+    warning on the file whose author had already thought about waiting and off
+    the file whose author had not.
+    """
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        """
+services:
+  api:
+    image: registry.example/api:1.2
+    ports: ["8000:8000"]
+    depends_on:
+      - db
+      - cache
+  db:
+    image: postgres:17
+  cache:
+    image: redis:7-alpine
+""".strip()
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--from-compose",
+            str(compose),
+            "--service",
+            "api",
+            "--output",
+            str(tmp_path / "rolloutkit.yaml"),
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    for dependency in ("db", "cache"):
+        assert (
+            f"service api starts after {dependency} but does not wait for it; "
+            f"write services.{dependency}.wait_for.tcp with the port "
+            f"{dependency} listens on" in result.output
+        )
+    # The gate is named, never written: the port is the one thing Compose does
+    # not know, so a generated `wait_for` would be a guess.
+    document = yaml.safe_load((tmp_path / "rolloutkit.yaml").read_text())
+    assert "wait_for" not in document["services"]["db"]
+    assert "wait_for" not in document["services"]["cache"]

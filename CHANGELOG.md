@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for `depends_on.<name>.condition` and `healthcheck`, instead of deferring both
   to v0.2. Neither is imported — compose carries no port for a dependency — but
   the equivalent to write by hand now exists.
+- `init --from-compose` now warns for every dependency it imports, not only for
+  the ones declared with a `condition:`. No form of `depends_on` carries a port,
+  so none of them can produce a gate; warning on only one shape left the warning
+  on the file whose author had already thought about waiting and off the file
+  whose author had not. The list form is the common one — it is what the
+  upstream Paperless-ngx Compose file uses.
 
 ## [0.1.1] - 2026-09-03
 

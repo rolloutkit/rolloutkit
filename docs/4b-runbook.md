@@ -20,15 +20,16 @@ to whoever owns the machine. This file exists to make that mechanical.
 **1. The copy has to be able to name itself.**
 
     rolloutkit --version
-    # rolloutkit 0.1.1 (b2d206ea50fa33bcf9cf9224a906b3e913eda29e)
+    # rolloutkit 0.1.2 (723d0f886315e10b8459f88f56ec8eb8fc662c93)
 
 If it says `(unknown)`, the report will too, and `docs/field-notes.md` requires
 every new section to name the exact harness commit. 0.1.0 installed from PyPI
-always said `unknown`; 0.1.1 stamps the revision into the wheel. From a checkout
-the revision comes from Git instead — and Git is asked for `HEAD`, not for
-whether the tree is clean, **so run from a committed tree.** A SHA next to a
-measurement made from modified sources names a tree that does not exist. If the
-tree has to be dirty, say so in the heading the way the 2026-08-26 note does:
+always said `unknown`; every release from 0.1.1 on stamps the revision into the
+wheel, and the SHA above is what 0.1.2 answers. From a checkout the revision
+comes from Git instead — and Git is asked for `HEAD`, not for whether the tree
+is clean, **so run from a committed tree.** A SHA next to a measurement made
+from modified sources names a tree that does not exist. If the tree has to be
+dirty, say so in the heading the way the 2026-08-26 note does:
 `rolloutkit commit: 68816b8 plus the uncommitted phase-progress change`.
 
 **2. Choose the in-flight endpoint now, not after the run.** See the next

@@ -158,7 +158,7 @@ def _service(
         imported["env"] = environment
     env_file = service.get("env_file")
     if env_file is not None:
-        imported["env_file"] = _env_files(compose_path, name, env_file)
+        imported["env_file"] = _env_files(compose_path, name, env_file, warnings)
     return imported
 
 
@@ -184,7 +184,23 @@ def _environment(
     raise ConfigError(f"service {name}.environment must be a mapping or list")
 
 
-def _env_files(compose_path: Path, name: str, value: Any) -> str | list[str]:
+def _env_files(
+    compose_path: Path, name: str, value: Any, warnings: list[str]
+) -> str | list[str]:
+    """The paths Compose points at, resolved, and said out loud if absent.
+
+    The reference is imported, never the contents: inlining the variables would
+    copy whatever is in that file — credentials included — into a generated
+    config that is about to be committed next to the Compose file it came from.
+
+    A reference to a file that is not there is worth saying now rather than at
+    run time. It is the ordinary case, not a rare one: `env_file` names a file
+    Compose users are told to copy in or generate, so it is exactly the file a
+    fresh checkout does not have. The run already refuses it with exit 2 and
+    names the field, which is the right failure and arrives after the config
+    has been written, read and run — and everything needed to say it is
+    knowable the moment the path is resolved.
+    """
     entries = value if isinstance(value, list) else [value]
     paths: list[str] = []
     for entry in entries:
@@ -192,7 +208,15 @@ def _env_files(compose_path: Path, name: str, value: Any) -> str | list[str]:
             entry = entry.get("path")
         if not isinstance(entry, str) or not entry:
             raise ConfigError(f"service {name}.env_file contains an invalid path")
-        paths.append(str((compose_path.parent / entry).resolve()))
+        resolved = (compose_path.parent / entry).resolve()
+        if not resolved.is_file():
+            warnings.append(
+                f"service {name}.env_file names {entry}, which does not exist; "
+                "the reference is imported as written, so the generated config "
+                "will be refused until that file is there or the variables it "
+                "would have set are written into the config's own env"
+            )
+        paths.append(str(resolved))
     return paths[0] if len(paths) == 1 else paths
 
 

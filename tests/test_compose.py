@@ -197,3 +197,49 @@ services:
     document = yaml.safe_load((tmp_path / "rolloutkit.yaml").read_text())
     assert "wait_for" not in document["services"]["db"]
     assert "wait_for" not in document["services"]["cache"]
+
+
+def test_an_env_file_that_is_not_there_is_reported_when_the_config_is_written(
+    tmp_path: Path,
+) -> None:
+    """Compose's `env_file` is usually the file a fresh checkout does not have.
+
+    Upstream projects ship it separately or tell the user to generate it, so
+    importing the reference produces a config that cannot run. The run already
+    refuses it with exit 2 and names the field; the path is knowable when it is
+    resolved, which is several steps earlier.
+    """
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        """
+services:
+  api:
+    image: registry.example/api:1.2
+    ports: ["8000:8000"]
+    env_file: docker-compose.env
+""".strip()
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "--from-compose",
+            str(compose),
+            "--service",
+            "api",
+            "--output",
+            str(tmp_path / "rolloutkit.yaml"),
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert (
+        "service api.env_file names docker-compose.env, which does not exist"
+        in result.output
+    )
+    # Imported as written all the same. The alternative is inlining whatever
+    # that file holds into a config that is about to be committed.
+    document = yaml.safe_load((tmp_path / "rolloutkit.yaml").read_text())
+    assert document["target"]["env_file"].endswith("docker-compose.env")

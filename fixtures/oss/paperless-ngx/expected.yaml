@@ -9,6 +9,12 @@
 # pipeline. The numbers those runs produced are in `unpinned` at the bottom,
 # where they are a record rather than an assertion.
 #
+# Every line below has since held on a second host — a GitHub-hosted runner,
+# four cores, Linux, x86_64 — on the first CI run of this job. That is what the
+# pins were for: the durations there are nothing like H1's, and not one of them
+# is pinned, so nothing had to be widened for the job to be green on a machine
+# it was never calibrated on.
+#
 # A failure here means one of two things, and they are worth telling apart
 # before anything is edited: either this repository changed what it measures, or
 # upstream changed what it does. The image is pinned by digest, so the second
@@ -65,14 +71,22 @@ contracts:
 # is going to move is worse than no number: it either gets widened until it
 # means nothing, or it goes red for the weather.
 unpinned:
-  - startup_ms: 19300-21400 locally, 28400 behind a 1.5-CPU quota. Bounded by
-      contracts.startup.budget in the config, which is what SP001 actually
-      judges.
-  - shutdown_ms: 6620-6790 locally and 6480 behind the quota — s6 stops its
-      services on timers, so this barely moves with CPU. Bounded by SP006's
-      30s budget with 23s to spare.
-  - inflight_at_sigterm: 17, 20 and 19 across the three runs. The count depends
-      on where the derived signal lands inside a burst of twenty; the branch,
-      `all_completed`, does not, and that is what is pinned above.
-  - accept_window_ms: 41.7, 49.1 and 92.6. Resolved to the 50ms accept-probe
-      interval, so this is three samples of a quantity that cannot be finer.
+  - startup_ms: 19300-21400 on H1, 28400 behind a 1.5-CPU quota, 48930 on the
+      CI runner. Bounded by contracts.startup.budget in the config, which is
+      what SP001 actually judges. The runner is the slowest host this has run
+      on and it used 54% of the 90s budget, so the budget is not close to being
+      the thing that needs raising.
+  - shutdown_ms: 6620-6790 on H1, 6480 behind the quota, 7773 on the runner.
+      s6 stops its services on timers, so a 2.6x spread in startup produces a
+      1.2x spread here. Bounded by SP006's 30s budget.
+  - inflight_at_sigterm: 17, 20 and 19 on H1, 19 on the runner. The count
+      depends on where the derived signal lands inside a burst of twenty; the
+      branch, `all_completed`, does not, and that is what is pinned above.
+  - accept_window_ms: 41.7, 49.1 and 92.6 on H1 — resolved to the 50ms
+      accept-probe interval, so those are three samples of a quantity that
+      cannot be finer. 650.9 on the runner, which is not the same quantity
+      being sampled more coarsely — it is thirteen probe intervals, so the
+      slower host really does keep accepting for longer after SIGTERM. Nothing
+      here judges it, because SP004's branch is `none_uncovered` either way —
+      the configuration declares no drain mechanism, so there is no covered
+      window for this number to be measured against.

@@ -74,7 +74,7 @@ volumes:
     assert "Compose build source (not executed): api: ./api (Dockerfile.prod)" in text
     for warning in (
         "only the first container port is imported",
-        "condition semantics are planned for v0.2",
+        "write services.db.wait_for.tcp with the port db listens on",
         "extends is not imported",
         "profiles are not imported",
         "volumes are not imported",

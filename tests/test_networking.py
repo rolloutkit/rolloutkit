@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import statistics
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,10 +13,12 @@ import httpx
 import pytest
 
 from rolloutkit.config.loader import load_config
-from rolloutkit.config.models import Config, Deployment, Target
+from rolloutkit.config.models import Config, Deployment, Target, WaitFor
 from rolloutkit.engine.context import RunReport
-from rolloutkit.engine.lifecycle import _calibrate
+from rolloutkit.engine.lifecycle import StartupFailure, _calibrate, _gate_dependency
+from rolloutkit.probes.http import DEPENDENCY_GATE_INTERVAL_MS
 from rolloutkit.runtime.base import Container, ContainerSpec
+from rolloutkit.runtime.traffic_probe import TrafficProbe
 from rolloutkit.runtime.base import TeardownCalibration
 from rolloutkit.runtime.docker import (
     PROBE_IMAGE,
@@ -402,5 +405,226 @@ def test_teardown_calibration_measures_a_real_daemon_and_agrees_with_itself() ->
         assert published["resolution_threshold_ms"] == round(
             calibration.resolution_threshold_ms, 3
         )
+
+    anyio.run(scenario)
+
+
+def _mock_probe(handler: Any) -> TrafficProbe:
+    probe = TrafficProbe.__new__(TrafficProbe)
+    probe.client = httpx.AsyncClient(
+        base_url="http://probe", transport=httpx.MockTransport(handler)
+    )
+    return probe
+
+
+def _dependency(ip: str = "172.30.0.4") -> Container:
+    return Container(id="dep", name="db", host=ip, host_port=0, container_ip=ip)
+
+
+def _gated_report() -> RunReport:
+    return RunReport(config=Config(target=Target(image="fixture", port=8000)))
+
+
+def test_the_gate_asks_the_sidecar_for_the_alias_at_the_shared_interval() -> None:
+    """The dependency is addressed by name, and both paths poll the same way.
+
+    The interval is sent rather than kept by the sidecar so that one number
+    governs both gate paths — and so the loader can say in advance which
+    budgets are too short to poll at all.
+    """
+    seen: list[tuple[str, dict[str, Any]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, json.loads(request.content)))
+        return _response(200, {"waited_ms": 4211.5})
+
+    async def scenario() -> None:
+        probe = _mock_probe(handler)
+        waited = await probe.wait_for_tcp(
+            host="db",
+            port=5432,
+            budget_ms=30_000,
+            interval_ms=DEPENDENCY_GATE_INTERVAL_MS,
+        )
+        assert waited == 4211.5
+
+    anyio.run(scenario)
+
+    assert seen == [
+        (
+            "/wait_tcp",
+            {"host": "db", "port": 5432, "budget_ms": 30_000, "interval_ms": 50},
+        )
+    ]
+
+
+def test_a_gate_that_ran_out_of_budget_is_a_result_rather_than_an_error() -> None:
+    """408 comes back as None so the caller can write the sentence.
+
+    `_post` would raise on it, and the message would be an HTTP status. What is
+    worth saying — which dependency, which port, what it was given — is known
+    only where the gate was configured.
+    """
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _response(408, {"waited_ms": 3000.0, "last_error": "ConnectionRefused"})
+
+    async def scenario() -> None:
+        probe = _mock_probe(handler)
+        assert (
+            await probe.wait_for_tcp(
+                host="db", port=5432, budget_ms=3_000, interval_ms=50
+            )
+            is None
+        )
+
+    anyio.run(scenario)
+
+
+def test_a_broken_gate_endpoint_is_still_an_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _response(500, {"error": "boom"})
+
+    async def scenario() -> None:
+        probe = _mock_probe(handler)
+        with pytest.raises(DockerError, match="/wait_tcp"):
+            await probe.wait_for_tcp(
+                host="db", port=5432, budget_ms=3_000, interval_ms=50
+            )
+
+    anyio.run(scenario)
+
+
+def test_a_gate_the_host_cannot_reach_is_skipped_with_the_reason_recorded() -> None:
+    """A host limitation is written down, not allowed to fail working configs.
+
+    With no sidecar and a proxied daemon there is no route from here to a
+    dependency's address at all, so waiting would time out whether or not the
+    dependency is listening. The runtime is deliberately absent: nothing on this
+    path may touch it.
+    """
+
+    async def scenario() -> None:
+        report = _gated_report()
+        report.probe_location = "host_fallback"
+        report.port_proxy_likely = True
+        report.host_os = "Darwin 25.5.0"
+        report.docker_server = {"os": "linux"}
+
+        await _gate_dependency(
+            name="db",
+            gate=WaitFor(tcp=5432, budget="30s"),
+            container=_dependency(),
+            runtime=None,  # type: ignore[arg-type]
+            traffic_probe=None,
+            report=report,
+            progress=None,
+        )
+
+        (wait,) = report.dependency_waits
+        assert wait.outcome == "skipped"
+        assert wait.waited_ms is None
+        assert wait.location == "host_fallback"
+        assert "172.30.0.4:5432" in (wait.skip_reason or "")
+        assert "Darwin 25.5.0" in (wait.skip_reason or "")
+
+    anyio.run(scenario)
+
+
+def test_a_gate_that_waited_records_how_long_and_where_from() -> None:
+    class Probe:
+        async def wait_for_tcp(self, **_kwargs: Any) -> float:
+            return 4211.5
+
+    async def scenario() -> None:
+        report = _gated_report()
+        report.probe_location = "sidecar"
+
+        await _gate_dependency(
+            name="db",
+            gate=WaitFor(tcp=5432, budget="30s"),
+            container=_dependency(),
+            runtime=None,  # type: ignore[arg-type]
+            traffic_probe=Probe(),  # type: ignore[arg-type]
+            report=report,
+            progress=None,
+        )
+
+        (wait,) = report.dependency_waits
+        assert wait.outcome == "connected"
+        assert wait.waited_ms == 4211.5
+        assert wait.location == "sidecar"
+        assert wait.budget_ms == 30_000
+
+    anyio.run(scenario)
+
+
+def test_a_dependency_that_never_listens_names_itself_and_brings_its_own_logs() -> None:
+    """The whole point of the gate: the failure is not attributed to the target.
+
+    Without it the target is started against a dependency that is not up, fails
+    its own readiness probe, and the run reports a readiness failure naming the
+    target — accurate about what happened and wrong about what to go and read.
+    """
+
+    class Runtime:
+        async def logs(self, _container: Container, tail: int = 50) -> str:
+            return "FATAL: data directory has wrong ownership"
+
+    class Probe:
+        async def wait_for_tcp(self, **_kwargs: Any) -> float | None:
+            return None
+
+    async def scenario() -> None:
+        report = _gated_report()
+        report.probe_location = "sidecar"
+
+        with pytest.raises(StartupFailure) as caught:
+            await _gate_dependency(
+                name="db",
+                gate=WaitFor(tcp=5432, budget="3s"),
+                container=_dependency(),
+                runtime=Runtime(),  # type: ignore[arg-type]
+                traffic_probe=Probe(),  # type: ignore[arg-type]
+                report=report,
+                progress=None,
+            )
+
+        message = str(caught.value)
+        assert "'db'" in message
+        assert "5432" in message
+        assert "3s" in message
+        assert "services.db.wait_for" in message
+        assert "wrong ownership" in caught.value.logs
+        assert report.dependency_waits == []
+
+    anyio.run(scenario)
+
+
+def test_a_dependency_log_read_that_fails_does_not_replace_the_gate_failure() -> None:
+    class Runtime:
+        async def logs(self, _container: Container, tail: int = 50) -> str:
+            raise DockerError("container already gone")
+
+    class Probe:
+        async def wait_for_tcp(self, **_kwargs: Any) -> float | None:
+            return None
+
+    async def scenario() -> None:
+        report = _gated_report()
+
+        with pytest.raises(StartupFailure) as caught:
+            await _gate_dependency(
+                name="db",
+                gate=WaitFor(tcp=5432, budget="3s"),
+                container=_dependency(),
+                runtime=Runtime(),  # type: ignore[arg-type]
+                traffic_probe=Probe(),  # type: ignore[arg-type]
+                report=report,
+                progress=None,
+            )
+
+        assert "never accepted a connection" in str(caught.value)
+        assert caught.value.logs == ""
 
     anyio.run(scenario)

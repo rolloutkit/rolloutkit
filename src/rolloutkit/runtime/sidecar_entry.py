@@ -402,7 +402,41 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         payload = self._read()
-        if self.path == "/startup":
+        if self.path == "/wait_tcp":
+            # A dependency gate, run before the target exists. Measured from
+            # here because a dependency publishes no port: on a host whose
+            # container addresses are proxied, the only process that can reach
+            # `alias:port` at all is one on the same network.
+            host, port = str(payload["host"]), int(payload["port"])
+            interval_s = int(payload["interval_ms"]) / 1000
+            started_ns = time.monotonic_ns()
+            deadline = started_ns + int(payload["budget_ms"]) * 1_000_000
+            last_error: str | None = None
+            while time.monotonic_ns() < deadline:
+                try:
+                    connection = socket.create_connection(
+                        (host, port), timeout=min(1.0, interval_s * 10)
+                    )
+                    connection.close()
+                    self._send(
+                        200,
+                        {"waited_ms": (time.monotonic_ns() - started_ns) / 1_000_000},
+                    )
+                    return
+                except OSError as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+                time.sleep(interval_s)
+            # 408 rather than 500: nothing here failed. Whether a dependency
+            # that never listened is worth aborting the run for is the host's
+            # question, and the host is what can name it and read its logs.
+            self._send(
+                408,
+                {
+                    "waited_ms": (time.monotonic_ns() - started_ns) / 1_000_000,
+                    "last_error": last_error,
+                },
+            )
+        elif self.path == "/startup":
             host, port = str(payload["host"]), int(payload["port"])
             started_unix_ns = int(payload["target_started_unix_ns"])
             deadline = time.time_ns() + int(payload["budget_ms"]) * 1_000_000

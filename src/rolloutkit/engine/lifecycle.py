@@ -16,10 +16,16 @@ from collections.abc import Callable
 import anyio
 import httpx
 
-from rolloutkit.config.models import Config, DrainStrategy
-from rolloutkit.engine.context import RunReport
+from rolloutkit.config.duration import format_ms
+from rolloutkit.config.models import Config, DrainStrategy, WaitFor
+from rolloutkit.engine.context import DependencyWait, RunReport
 from rolloutkit.engine.events import Kind, event, now_ns
-from rolloutkit.probes.http import probe_http, wait_for_readiness, wait_for_tcp
+from rolloutkit.probes.http import (
+    DEPENDENCY_GATE_INTERVAL_MS,
+    probe_http,
+    wait_for_readiness,
+    wait_for_tcp,
+)
 from rolloutkit.runtime.base import Container, ContainerSpec, DaemonEvent
 from rolloutkit.runtime.docker import DockerError, DockerRuntime
 from rolloutkit.runtime.traffic_probe import TrafficProbe
@@ -127,6 +133,7 @@ async def run_experiment(
             _begin_phase(
                 progress, f"starting dependencies: {', '.join(config.services)}"
             )
+        dependencies: dict[str, Container] = {}
         for service_name, service in config.services.items():
             dependency = await runtime.start(
                 ContainerSpec(
@@ -141,6 +148,24 @@ async def run_experiment(
                 )
             )
             started.append(dependency)
+            dependencies[service_name] = dependency
+        # Gates run after every dependency has been created, not interleaved
+        # with the starts: they come up concurrently either way, and waiting on
+        # the first one while the second has not been asked to start yet would
+        # add its boot time to the run for nothing. Sequential in declaration
+        # order, because the order the failures are reported in should be the
+        # order they are written in.
+        for service_name, service in config.services.items():
+            if service.wait_for is not None:
+                await _gate_dependency(
+                    name=service_name,
+                    gate=service.wait_for,
+                    container=dependencies[service_name],
+                    runtime=runtime,
+                    traffic_probe=traffic_probe,
+                    report=report,
+                    progress=progress,
+                )
         _finish_phase(report, "dependencies", phase_started_ns)
 
         phase_started_ns = _begin_phase(
@@ -281,6 +306,104 @@ def _begin_phase(progress: Progress, message: str) -> int:
 
 def _finish_phase(report: RunReport, phase: str, started_ns: int) -> None:
     report.phase_durations_ms[phase] += (now_ns() - started_ns) / 1_000_000
+
+
+async def _gate_dependency(
+    *,
+    name: str,
+    gate: WaitFor,
+    container: Container,
+    runtime: DockerRuntime,
+    traffic_probe: TrafficProbe | None,
+    report: RunReport,
+    progress: Progress,
+) -> None:
+    """Hold the run until one dependency accepts connections on its port.
+
+    Everything measured after this point is attributed to the target, so this is
+    where a dependency that is still initialising has to be caught. Started
+    against a Postgres mid-init, a target gives up on it and fails its own
+    readiness probe; the run then reports a readiness failure and names the
+    target. The failure is real and the attribution is wrong, which is the
+    expensive kind of wrong — it sends someone to read the target's code.
+    """
+    _begin_phase(progress, f"waiting for dependency {name} on port {gate.tcp}")
+    location = "sidecar" if traffic_probe is not None else "host_fallback"
+    if traffic_probe is not None:
+        waited_ms = await traffic_probe.wait_for_tcp(
+            host=name,
+            port=gate.tcp,
+            budget_ms=gate.budget,
+            interval_ms=DEPENDENCY_GATE_INTERVAL_MS,
+        )
+    elif report.port_proxy_likely:
+        # Skipped, and said so. A dependency publishes no port, so the host's
+        # only route to it is the container address — which is exactly the
+        # route this host does not have. Waiting anyway would time out on every
+        # working configuration and abort the run for a limitation of the
+        # machine it ran on.
+        report.dependency_waits.append(
+            DependencyWait(
+                service=name,
+                port=gate.tcp,
+                budget_ms=gate.budget,
+                outcome="skipped",
+                location=location,
+                skip_reason=(
+                    f"the sidecar did not start and this host reaches container "
+                    f"addresses through a userspace proxy (host {report.host_os}, "
+                    f"docker {report.docker_server.get('os')}); a connection to "
+                    f"{container.container_ip}:{gate.tcp} from here would time "
+                    f"out whether or not {name} is listening"
+                ),
+            )
+        )
+        return
+    else:
+        started_ns = now_ns()
+        opened_ns = await wait_for_tcp(
+            container.container_ip,
+            gate.tcp,
+            budget_ms=gate.budget,
+            interval_ms=DEPENDENCY_GATE_INTERVAL_MS,
+        )
+        waited_ms = (
+            None if opened_ns is None else (opened_ns - started_ns) / 1_000_000
+        )
+
+    if waited_ms is None:
+        raise StartupFailure(
+            f"dependency {name!r} never accepted a connection on port {gate.tcp} "
+            f"within {format_ms(gate.budget)} (services.{name}.wait_for). The "
+            f"target was never started: against a dependency that is not up it "
+            f"would have failed its readiness probe, and the run would have "
+            f"reported that as the target's problem. The log tail below is "
+            f"{name}'s, not the target's.",
+            await _dependency_logs(runtime, container),
+        )
+
+    report.dependency_waits.append(
+        DependencyWait(
+            service=name,
+            port=gate.tcp,
+            budget_ms=gate.budget,
+            outcome="connected",
+            location=location,
+            waited_ms=waited_ms,
+        )
+    )
+
+
+async def _dependency_logs(runtime: DockerRuntime, container: Container) -> str:
+    """The dependency's own output, or nothing at all.
+
+    A log read that fails must not become the reported failure: the gate already
+    knows what went wrong, and this only adds the evidence.
+    """
+    try:
+        return await runtime.logs(container, tail=_LOG_TAIL)
+    except Exception:  # noqa: BLE001 - evidence is optional; the error is not
+        return ""
 
 
 def _port_proxy_likely(report: RunReport) -> bool:

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `services.<name>.wait_for: { tcp: PORT, budget: 30s }` holds the run until
+  that dependency accepts a connection. Dependencies were started and the target
+  followed immediately, so a database still initialising made the target fail
+  its own readiness probe and the run reported a readiness failure naming the
+  target — accurate about what happened and wrong about what to go and read. A
+  dependency that never accepts now ends the run with exit 3, names itself, and
+  prints its own log tail. No contract semantics change: the gate produces no
+  verdict.
+- `dependency_waits` in JSON reports: one entry per declared gate, with the
+  milliseconds waited and where the wait was measured from. A gate skipped
+  because the host cannot reach container addresses is listed with the reason,
+  so a run whose gates did nothing is distinguishable from one whose gates all
+  passed.
+- Two configuration errors that used to be discovered at run time or not at
+  all. A service named `target` is rejected: it asks for the container name and
+  network alias the target itself runs under, so the daemon refuses the second
+  container and the run aborts with a name conflict after pulling the images. A
+  `wait_for.budget` shorter than the gate's own poll interval is rejected: it
+  does not wait for anything, it checks once and aborts.
+
+### Changed
+
+- `init --from-compose` now names `services.<name>.wait_for.tcp` in the warnings
+  for `depends_on.<name>.condition` and `healthcheck`, instead of deferring both
+  to v0.2. Neither is imported — compose carries no port for a dependency — but
+  the equivalent to write by hand now exists.
+
 ## [0.1.1] - 2026-09-03
 
 ### Fixed

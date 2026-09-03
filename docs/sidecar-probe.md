@@ -27,6 +27,32 @@ If Docker can't start the probe or attach it to the run network, Rolloutkit
 uses host traffic. JSON evidence then reports `probe_location: host_fallback`
 and `probe_fallback_reason`. `port_proxy_likely` applies only to this fallback.
 
+## Dependency gates
+
+`services.<name>.wait_for.tcp` holds the run until that dependency accepts a
+connection on the port it declares. The wait runs from the probe container,
+because a dependency publishes no port: on the run network it is reachable by
+its alias and nowhere else.
+
+The port has to be written down because nothing else in the run knows it. The
+target declares one; a dependency does not, and `depends_on` in a compose file
+carries no port either.
+
+Without the gate the target is started the moment its dependency's container
+exists. A database that is still initialising is not a database yet, so the
+target gives up on it and fails its own readiness probe — and the run reports a
+readiness failure naming the target, which is accurate about what happened and
+wrong about what to go and read. A dependency that never accepts ends the run
+with exit 3, names itself, and prints its own log tail.
+
+On the host fallback the gate depends on the host. Where container addresses
+are routable it waits from the host directly. Where they are not — Docker
+Desktop, where the daemon lives in a VM — a connection to the dependency's
+address times out whether or not it is listening, so the gate is skipped rather
+than allowed to abort working configurations. JSON reports every gate under
+`dependency_waits`, a skipped one with the reason it was skipped, so a run whose
+gates did nothing is distinguishable from one whose gates all passed.
+
 ## Calibration
 
 The active traffic location owns its calibration. The sidecar measures

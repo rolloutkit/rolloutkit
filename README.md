@@ -106,6 +106,7 @@ target:
 services:                     # dependencies, started on the same network
   db:
     image: postgres:16-alpine
+    wait_for: { tcp: 5432, budget: 30s }   # hold the target until db listens
 
 deployment:                   # this is what SP004 and SP006 judge against
   platform: kubernetes

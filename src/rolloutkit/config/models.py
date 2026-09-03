@@ -52,6 +52,28 @@ class Target(Strict):
     command: list[str] | None = None
 
 
+class WaitFor(Strict):
+    """A dependency's own readiness, waited for before the target is started.
+
+    Without it the target races its dependencies. `docker start` returns as soon
+    as the container exists; Postgres then spends seconds initialising. A target
+    that gives up on a database which is not listening yet fails its own
+    readiness probe, and the run reports what the target did — accurately, and
+    about the wrong container.
+
+    This is the first port to appear anywhere in `services`, because it is the
+    first time one is needed: a dependency publishes nothing and is reached only
+    by its network alias, so nothing else in the run knows what it listens on.
+    """
+
+    #: TCP only. The kernel completes the handshake out of the listen backlog
+    #: whether or not the application has called accept(), so this says the
+    #: dependency has bound its port — never that it can answer a query. It is
+    #: the same signal SP001 treats as `tcp_open` rather than as readiness.
+    tcp: int = Field(ge=1, le=65535)
+    budget: Duration = 30_000
+
+
 class Service(Strict):
     """A dependency reachable only inside the run-scoped bridge network."""
 
@@ -59,6 +81,9 @@ class Service(Strict):
     env: dict[str, str] = Field(default_factory=dict)
     env_file: Path | list[Path] | None = None
     command: list[str] | None = None
+    #: Unset means the target starts the moment this container exists, which is
+    #: a race the target loses noisily and gets blamed for.
+    wait_for: WaitFor | None = None
 
 
 class PreStop(Strict):

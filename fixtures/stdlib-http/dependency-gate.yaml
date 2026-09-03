@@ -1,0 +1,38 @@
+# Acceptance fixture for `services.<name>.wait_for`, deliberately outside the
+# verdict matrix: it proves the gate waits, not that a contract branches.
+#
+# The dependency is the target's own image with STARTUP_DELAY_SECONDS set, so
+# it binds four seconds after the container exists — the shape of a Postgres
+# that is still initialising. Without the gate the target would be started
+# against it immediately.
+version: 1
+
+target:
+  image: rk-fixture-stdlib
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+
+services:
+  db:
+    image: rk-fixture-stdlib
+    env:
+      STARTUP_DELAY_SECONDS: "4"
+    wait_for:
+      tcp: 8000
+      budget: 30s
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  inflight: null
+
+timeouts:
+  startup: 30s

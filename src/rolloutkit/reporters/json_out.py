@@ -79,6 +79,12 @@ def build(session: Session, version: str) -> dict[str, Any]:
             for phase in last.report.phase_durations_ms
         },
         "environment": _environment(last.report),
+        # Empty unless a dependency declared `wait_for`. A skipped gate is
+        # listed with its reason: a run whose gates did nothing has to be
+        # distinguishable from one whose gates all passed.
+        "dependency_waits": [
+            wait.as_dict() for wait in last.report.dependency_waits
+        ],
         "baseline": _baseline(last.report),
         "readiness_baseline": (
             redactor.apply(last.report.readiness_baseline.as_dict())

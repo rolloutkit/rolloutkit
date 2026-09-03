@@ -26,6 +26,42 @@ SIGKILL_EXIT = 137
 SIGTERM_SIGNO = 15
 
 
+@dataclass(frozen=True, slots=True)
+class DependencyWait:
+    """What one `services.<name>.wait_for` gate did before the target started.
+
+    A gate that was skipped is recorded as loudly as one that waited. The skip
+    is a property of the host, not of the configuration, and a run whose gates
+    silently did nothing looks identical to one whose gates all passed — right
+    up until the target fails a readiness probe for a reason that is not its
+    own.
+    """
+
+    service: str
+    port: int
+    budget_ms: int
+    #: "connected" or "skipped". A gate that ran out of budget raises instead:
+    #: the run ends as an infrastructure error and produces no report.
+    outcome: str
+    #: Where the wait was measured from, or where it would have been.
+    location: str
+    waited_ms: float | None = None
+    skip_reason: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "service": self.service,
+            "port": self.port,
+            "budget_ms": self.budget_ms,
+            "outcome": self.outcome,
+            "location": self.location,
+            "waited_ms": (
+                None if self.waited_ms is None else round(self.waited_ms, 3)
+            ),
+            "skip_reason": self.skip_reason,
+        }
+
+
 @dataclass(slots=True)
 class RunReport:
     config: Config
@@ -103,6 +139,8 @@ class RunReport:
     port_proxy_likely: bool = False
     network_name: str = ""
     traffic_endpoint: str = ""
+    #: One entry per dependency that declared `wait_for`, in declaration order.
+    dependency_waits: list[DependencyWait] = field(default_factory=list)
     probe_location: str = "host_fallback"
     probe_fallback_reason: str | None = None
     probe_image: str | None = None

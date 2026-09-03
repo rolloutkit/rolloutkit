@@ -1,0 +1,39 @@
+# The same gate against a dependency that never binds anything. The run has to
+# end as an infrastructure error naming `db` — not as a readiness failure
+# naming the target, which is what happens with no gate at all.
+version: 1
+
+target:
+  image: rk-fixture-stdlib
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+
+services:
+  db:
+    image: rk-fixture-stdlib
+    # Prints a line and binds nothing. The line is how the run proves the log
+    # tail it shows belongs to the dependency: the target is never started.
+    command:
+      - python
+      - -u
+      - -c
+      - "print('dependency-gate fixture: this container never binds'); import time; time.sleep(60)"
+    wait_for:
+      tcp: 5432
+      budget: 3s
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  inflight: null
+
+timeouts:
+  startup: 30s

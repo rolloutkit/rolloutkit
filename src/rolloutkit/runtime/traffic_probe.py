@@ -72,6 +72,35 @@ class TrafficProbe:
             )
         return response.json()
 
+    async def wait_for_tcp(
+        self, *, host: str, port: int, budget_ms: int, interval_ms: int
+    ) -> float | None:
+        """Milliseconds spent waiting for `host:port` to accept, or None.
+
+        None means the budget ran out, which is deliberately not an error here.
+        `_post` would raise on the 408 and the message would be an HTTP status;
+        the caller knows which dependency this was, what it was configured to
+        wait for, and how to read its logs, so it writes the sentence.
+        """
+        response = await self.client.post(
+            "/wait_tcp",
+            json={
+                "host": host,
+                "port": port,
+                "budget_ms": budget_ms,
+                "interval_ms": interval_ms,
+            },
+            timeout=budget_ms / 1000 + 5,
+        )
+        if response.status_code == 408:
+            return None
+        if response.status_code >= 400:
+            raise DockerError(
+                f"traffic probe /wait_tcp failed: HTTP {response.status_code}: "
+                f"{response.text[-1000:]}"
+            )
+        return float(response.json()["waited_ms"])
+
     async def startup(
         self,
         *,

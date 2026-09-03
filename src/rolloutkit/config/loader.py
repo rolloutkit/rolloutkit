@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from rolloutkit import __version__
 from rolloutkit.config.models import Config, DrainStrategy
+from rolloutkit.probes.http import DEPENDENCY_GATE_INTERVAL_MS
 from rolloutkit.traffic.accept_probe import ACCEPT_PROBE_INTERVAL_MS
 
 DEFAULT_CONFIG_NAMES = ("rolloutkit.yaml", "rolloutkit.yml")
@@ -224,14 +225,27 @@ def load_config(
         config = Config.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(_render_validation_error(exc)) from exc
+    _reject_reserved_service_name(config)
     _reject_unmeasurable_drain_window(config)
     _reject_unreachable_startup_budget(config)
+    _reject_unpollable_dependency_gate(config)
     return config
 
 
 #: How many accept-probe samples a declared window has to span before the probe
 #: can tell the window apart from its own sampling interval.
 MIN_WINDOW_PROBE_SAMPLES = 20
+
+
+#: The role the target runs under: its container is `rk-<token>-target` and its
+#: network alias is `target`. A dependency asks for both under its own name, so
+#: this is a name no dependency may take.
+TARGET_ROLE = "target"
+
+
+#: How many times a dependency gate has to be able to re-try before the wait is
+#: a wait rather than a single look.
+MIN_GATE_POLL_SAMPLES = 3
 
 
 #: Settings that were declared in a shipped model and have been taken out
@@ -322,6 +336,63 @@ def _reject_unreachable_startup_budget(config: Config) -> None:
         f"Lower contracts.startup.budget below {wall}ms, or raise "
         f"timeouts.startup above {budget}ms."
     )
+
+
+def _reject_reserved_service_name(config: Config) -> None:
+    """Refuse a dependency that cannot coexist with the target.
+
+    Containers in a run are named `rk-<token>-<role>`, and the target's role is
+    `target`. A dependency called `target` asks for that same container name, so
+    the daemon refuses to create the second one: the run aborts with a name
+    conflict — exit 3, after the images have been pulled and the network
+    created. The alias would have collided too; the name gets there first.
+
+    The conflict is genuine, but the message is Docker's and it names a
+    container nobody wrote down. Both halves of the question are in the two
+    lines of configuration that raise it, so it is answered here.
+    """
+    if TARGET_ROLE not in config.services:
+        return
+    raise ConfigError(
+        f"services.{TARGET_ROLE} is not an available name: `{TARGET_ROLE}` is "
+        "the role the target itself runs under, so both containers would ask "
+        "the daemon for the same name and the same network alias. The daemon "
+        "refuses the second one, and the run aborts with a name conflict after "
+        "the images have been pulled.\n"
+        "Rename the dependency — `db`, `cache`, `queue`. Only the key changes; "
+        "the container is reached by whatever name you give it."
+    )
+
+
+def _reject_unpollable_dependency_gate(config: Config) -> None:
+    """Refuse a wait_for budget too short to be a wait.
+
+    The gate polls the dependency's port every DEPENDENCY_GATE_INTERVAL_MS. A
+    budget of a sample or two does not wait for a slow dependency; it looks once
+    at a container that has just been created and then declares the port dead —
+    exit 3, naming a dependency that was merely still starting. That is a worse
+    outcome than having no gate at all, because it turns a race the target used
+    to lose into a run that cannot start.
+
+    Both numbers are known before anything runs, so this is answered here rather
+    than after an image has been pulled and a container started.
+    """
+    floor_ms = MIN_GATE_POLL_SAMPLES * DEPENDENCY_GATE_INTERVAL_MS
+    for name, service in config.services.items():
+        if service.wait_for is None or service.wait_for.budget > floor_ms:
+            continue
+        raise ConfigError(
+            f"services.{name}.wait_for.budget is {service.wait_for.budget}ms, "
+            f"which is not greater than the {floor_ms}ms the gate needs to poll "
+            f"at all ({MIN_GATE_POLL_SAMPLES} tries at "
+            f"{DEPENDENCY_GATE_INTERVAL_MS}ms). A budget that short does not "
+            f"wait for {name} to come up; it checks whether the port is already "
+            "open in the instant after the container was created, and aborts "
+            "the run with exit 3 when it is not.\n"
+            f"Raise services.{name}.wait_for.budget to the time this dependency "
+            "actually needs — 30s is the default and covers a cold Postgres — "
+            "or drop wait_for entirely if this one listens immediately."
+        )
 
 
 def _render_validation_error(exc: ValidationError) -> str:

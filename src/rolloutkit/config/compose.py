@@ -236,7 +236,8 @@ def _dependency_names(
             if isinstance(settings, dict) and "condition" in settings:
                 warnings.append(
                     f"service {name}.depends_on.{dependency}.condition is not "
-                    "imported; condition semantics are planned for v0.2"
+                    f"imported; write services.{dependency}.wait_for.tcp with "
+                    f"the port {dependency} listens on to wait for it"
                 )
         return [str(item) for item in value]
     raise ConfigError(f"service {name}.depends_on must be a list or mapping")
@@ -249,7 +250,10 @@ def _warn_unsupported(
         "extends": "extends is not imported (v0.2)",
         "profiles": "profiles are not imported (v0.2)",
         "volumes": "volumes are not imported (v0.2)",
-        "healthcheck": "healthcheck is not imported (v0.2)",
+        "healthcheck": (
+            "healthcheck is not imported; for a dependency, wait on the port "
+            "it listens on with services.<name>.wait_for.tcp"
+        ),
     }
     for key, message in messages.items():
         if key in section:

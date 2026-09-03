@@ -352,6 +352,23 @@ def _environment_block(console: Console, report: RunReport) -> None:
                 style="yellow",
             )
         )
+    for wait in report.dependency_waits:
+        if wait.outcome == "skipped":
+            console.print(
+                Text(
+                    f"  Dependency gate skipped for {wait.service}:{wait.port} — "
+                    f"{wait.skip_reason}",
+                    style="yellow",
+                )
+            )
+        elif wait.waited_ms is not None:
+            console.print(
+                Text(
+                    f"  Waited {wait.waited_ms:.0f}ms for {wait.service}:"
+                    f"{wait.port} to accept connections",
+                    style="dim",
+                )
+            )
     if jitter is not None:
         console.print(
             Text(

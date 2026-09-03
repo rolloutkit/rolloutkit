@@ -1,0 +1,42 @@
+# The same gate with no sidecar, which is the one place the gate's behaviour
+# depends on the host. Where container addresses are routable the wait happens
+# from the host; where a userspace proxy sits in front of them a connection to
+# the dependency's address would time out whether or not it is listening, so
+# the gate is skipped and says so. Both outcomes are correct; which one you get
+# is a fact about the machine.
+version: 1
+
+probe:
+  # A cached scratch image cannot boot the Python controller. This forces
+  # host fallback without depending on registry availability.
+  image: rk-go-nosignal
+
+target:
+  image: rk-fixture-stdlib
+  port: 8000
+  env:
+    HANDLE_SIGTERM: "1"
+
+services:
+  db:
+    image: rk-fixture-stdlib
+    env:
+      STARTUP_DELAY_SECONDS: "4"
+    wait_for:
+      tcp: 8000
+      budget: 30s
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+
+probes:
+  readiness:
+    path: /ready
+    expected_status: 200
+
+contracts:
+  inflight: null
+
+timeouts:
+  startup: 30s

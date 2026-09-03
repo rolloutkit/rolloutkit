@@ -15,6 +15,12 @@ from rolloutkit.engine.events import now_ns
 
 READINESS_POLL_INTERVAL_MS = 100
 
+#: How often a `services.<name>.wait_for` gate re-tries the dependency's port.
+#: Both gate paths use it — the sidecar is sent the value rather than keeping
+#: its own — so a wait is sampled the same way wherever it was measured, and
+#: the loader can say in advance which budgets are too short to sample at all.
+DEPENDENCY_GATE_INTERVAL_MS = 50
+
 
 @dataclass(frozen=True, slots=True)
 class ProbeResult:

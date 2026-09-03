@@ -577,3 +577,130 @@ def test_json_reports_per_run_and_aggregate_phase_durations() -> None:
     assert document["phase_durations_ms"]["baseline"] == 20.0
     assert document["phase_durations_ms"]["teardown"] == 6.0
     assert document["runs"][0]["phase_durations_ms"]["baseline"] == 12.25
+
+
+def _wait_for_config(body: str, name: str = "db") -> str:
+    return (
+        "version: 1\n"
+        "target: {image: fixture, port: 8000}\n"
+        "services:\n"
+        f"  {name}:\n"
+        "    image: postgres:16-alpine\n"
+        f"{body}"
+    )
+
+
+def test_a_dependency_gate_round_trips_through_the_loader(tmp_path: Path) -> None:
+    """The port lives in the config because nothing else in the run knows it.
+
+    A dependency publishes nothing and is reached only by its network alias, so
+    unlike the target there is no other place the number could come from.
+    """
+    path = tmp_path / "gate.yaml"
+    path.write_text(_wait_for_config("    wait_for: {tcp: 5432, budget: 45s}\n"))
+
+    config = load_config(config_path=path)
+
+    gate = config.services["db"].wait_for
+    assert gate is not None
+    assert gate.tcp == 5432
+    assert gate.budget == 45_000
+
+
+def test_a_dependency_without_a_gate_declares_nothing(tmp_path: Path) -> None:
+    path = tmp_path / "plain.yaml"
+    path.write_text(_wait_for_config(""))
+
+    config = load_config(config_path=path)
+
+    assert config.services["db"].wait_for is None
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("    wait_for: {budget: 30s}\n", "tcp"),
+        ("    wait_for: {tcp: 0}\n", "tcp"),
+        ("    wait_for: {tcp: 70000}\n", "tcp"),
+        ("    wait_for: {tcp: 5432, budget: 30}\n", "no unit"),
+        ("    wait_for: {tcp: 5432, timeout: 30s}\n", "timeout"),
+    ],
+)
+def test_a_malformed_dependency_gate_is_a_config_error(
+    tmp_path: Path, body: str, expected: str
+) -> None:
+    """Including the misspelling: `extra='forbid'` is the point of Strict.
+
+    A `timeout:` that is silently ignored reads as a gate that is configured and
+    behaves as one that is not.
+    """
+    path = tmp_path / "bad.yaml"
+    path.write_text(_wait_for_config(body))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "config error" in result.output
+    assert expected in result.output
+
+
+@pytest.mark.parametrize("budget", ["50ms", "100ms", "150ms"])
+def test_an_unpollable_dependency_gate_is_rejected_before_docker(
+    tmp_path: Path, budget: str
+) -> None:
+    """A budget of a sample or two does not wait; it looks once and aborts.
+
+    Both sides of the comparison — the declared budget and the gate's own poll
+    interval — are fixed before anything runs, so nothing is learned by pulling
+    an image first. Left unchecked it turns a race the target used to lose into
+    a run that cannot start, and blames the dependency for it.
+    """
+    path = tmp_path / "impatient.yaml"
+    path.write_text(_wait_for_config(f"    wait_for: {{tcp: 5432, budget: {budget}}}\n"))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "config error" in result.output
+    assert "services.db.wait_for.budget" in result.output
+    assert "150ms" in result.output, "the message must name the floor it failed"
+
+
+def test_a_pollable_dependency_gate_is_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "patient.yaml"
+    path.write_text(_wait_for_config("    wait_for: {tcp: 5432, budget: 200ms}\n"))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 0
+    assert "configuration valid" in result.output
+
+
+def test_a_dependency_named_target_is_rejected(tmp_path: Path) -> None:
+    """Two containers cannot share the target's role, and Docker says so late.
+
+    Both would be created as `rk-<token>-target`; the daemon refuses the second
+    with a name conflict, so the run dies with exit 3 after pulling the images,
+    quoting a container name nobody wrote. The question is answerable from the
+    configuration alone.
+    """
+    path = tmp_path / "collision.yaml"
+    path.write_text(_wait_for_config("", name="target"))
+
+    result = runner.invoke(app, ["validate", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "config error" in result.output
+    assert "services.target" in result.output
+    assert "alias" in result.output
+
+
+def test_a_dependency_named_target_stops_test_too(tmp_path: Path) -> None:
+    """Rejecting it in `validate` alone would still let `test` start a container."""
+    path = tmp_path / "collision.yaml"
+    path.write_text(_wait_for_config("", name="target"))
+
+    result = runner.invoke(app, ["test", "--config", str(path)])
+
+    assert result.exit_code == 2
+    assert "services.target" in result.output

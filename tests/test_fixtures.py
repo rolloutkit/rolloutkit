@@ -479,6 +479,118 @@ def test_delayed_bind_distinguishes_linux_direct_ip_from_desktop_proxy(
     assert environment["traffic_endpoint"] == "target:8000"
 
 
+def test_a_late_binding_dependency_is_waited_for(built_images: None) -> None:
+    """The gate holds the run until the dependency accepts, and says how long.
+
+    The dependency is the target's own image with a four-second delay before it
+    binds — the shape of a Postgres still initialising. Acceptance fixture,
+    deliberately outside the verdict matrix: it proves the gate waits, not that
+    a contract branches.
+    """
+    run = subprocess.run(
+        [
+            str(_cli()),
+            "test",
+            "--config",
+            str(FIXTURES / "stdlib-http/dependency-gate.yaml"),
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert run.returncode == 0, run.stderr
+    report = json.loads(run.stdout)
+
+    assert report["environment"]["probe_location"] == "sidecar"
+    (wait,) = report["dependency_waits"]
+    assert wait == {
+        "service": "db",
+        "port": 8000,
+        "budget_ms": 30_000,
+        "outcome": "connected",
+        "location": "sidecar",
+        "waited_ms": wait["waited_ms"],
+        "skip_reason": None,
+    }
+    assert 3_000 <= wait["waited_ms"] <= 12_000, (
+        "the wait has to show the dependency's own delay, not a round trip"
+    )
+
+
+def test_a_gate_without_a_sidecar_either_waits_or_says_why_it_did_not(
+    built_images: None,
+) -> None:
+    """The one place the gate's behaviour is a property of the host.
+
+    On a host whose container addresses are routable the wait happens from the
+    host. On Docker Desktop the daemon lives in a VM and a connection to the
+    dependency's address times out whether or not it is listening, so waiting
+    would abort working configurations — the gate is skipped and the reason is
+    recorded. Asserting one of the two would be asserting which machine this is.
+    """
+    run = subprocess.run(
+        [
+            str(_cli()),
+            "test",
+            "--config",
+            str(FIXTURES / "stdlib-http/dependency-gate-host-fallback.yaml"),
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert run.returncode == 0, run.stderr
+    report = json.loads(run.stdout)
+    environment = report["environment"]
+
+    assert environment["probe_location"] == "host_fallback"
+    (wait,) = report["dependency_waits"]
+    assert wait["location"] == "host_fallback"
+    if environment["port_proxy_likely"]:
+        assert wait["outcome"] == "skipped"
+        assert wait["waited_ms"] is None
+        assert "db" in wait["skip_reason"]
+        assert str(environment["host_os"]).split()[0] in wait["skip_reason"]
+    else:
+        assert wait["outcome"] == "connected"
+        assert wait["skip_reason"] is None
+        assert 3_000 <= wait["waited_ms"] <= 12_000
+
+
+def test_a_dependency_that_never_binds_ends_the_run_naming_itself(
+    built_images: None,
+) -> None:
+    """Exit 3 about the dependency, rather than a readiness failure about the target.
+
+    Without the gate the target is started against a dependency that is not up,
+    fails its own readiness probe, and the run reports SP002 — accurate about
+    what happened and wrong about what to go and read. The printed log tail is
+    the dependency's, which is the other half of the attribution.
+    """
+    run = subprocess.run(
+        [
+            str(_cli()),
+            "test",
+            "--config",
+            str(FIXTURES / "stdlib-http/dependency-gate-timeout.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert run.returncode == 3, run.stdout
+    assert "infrastructure" in run.stderr
+    assert "services.db.wait_for" in run.stderr
+    assert "5432" in run.stderr
+    assert "never binds" in run.stderr, "the log tail has to be the dependency's"
+    assert "SP002" not in run.stdout, "no contract may be evaluated against this"
+
+
 def test_unusable_probe_image_uses_explicit_host_fallback(built_images: None) -> None:
     run = subprocess.run(
         [

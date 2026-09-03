@@ -1,0 +1,100 @@
+# Paperless-ngx: the acceptance run that uses somebody else's image.
+#
+# Every other fixture in this repository is a container this repository wrote,
+# which means the whole suite could stay green while the pipeline failed on the
+# first real application anybody pointed it at. This one is a third-party image
+# with third-party dependencies, and it is here to keep that claim honest rather
+# than to cover a verdict branch — see `expected.yaml` for what is pinned.
+#
+# Images are pinned by digest, not by tag. `:latest` moves on upstream's
+# schedule, and a fixture that follows it turns an upstream release into a red
+# build that nobody here caused. Updating a digest is a deliberate commit, the
+# same rule `fixtures/matrix.yaml` lives under.
+#
+# Digests captured 2026-09-03:
+#   paperless-ngx 3.1.2 (upstream revision ca98dffb, built 2026-09-01)
+#   postgres:17-alpine
+#   redis:8-alpine
+version: 1
+
+target:
+  image: ghcr.io/paperless-ngx/paperless-ngx@sha256:5ab4f4f9bb099a36bec3e092906ea3e611323c5f18dc5cc38c76a1d540bdca9c
+  port: 8000
+  env:
+    # Both hosts are the `services` keys below: a dependency is reachable by
+    # its network alias and by nothing else.
+    PAPERLESS_DBHOST: db
+    PAPERLESS_REDIS: redis://broker:6379
+    PAPERLESS_DBUSER: paperless
+    PAPERLESS_DBNAME: paperless
+    PAPERLESS_DBPASS: rk-fixture-db-password
+    # Deliberately not a real key. It is also deliberately not the string
+    # `paperless`: a value under a name matching KEY/SECRET/PASSWORD is redacted
+    # wherever it appears in a report, and a value that short would take the
+    # image name and half the evidence with it.
+    PAPERLESS_SECRET_KEY: rk-fixture-not-a-real-secret-key
+    PAPERLESS_TIME_ZONE: UTC
+
+services:
+  db:
+    image: postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    env:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: rk-fixture-db-password
+    # The gate this fixture exists to exercise. Paperless runs its migrations
+    # at startup, against this database, and gives up if it is not there yet.
+    wait_for:
+      tcp: 5432
+      budget: 60s
+  broker:
+    image: redis@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+    wait_for:
+      tcp: 6379
+      budget: 30s
+
+deployment:
+  platform: kubernetes
+  termination_grace_period: 30s
+
+probes:
+  # `/` answers 302 to the login page, so it is not a readiness signal here —
+  # the upstream healthcheck follows the redirect and this probe does not.
+  # `/accounts/login/` renders through Django and the database, which is the
+  # thing worth calling ready.
+  readiness:
+    path: /accounts/login/
+    expected_status: 200
+
+contracts:
+  startup:
+    # Measured, then tripled — the same rule `timeouts.startup` was sized under.
+    # Three runs on this host (11 cores, arm64) read 19.3s, 19.9s and 21.4s to
+    # readiness. The same image behind a 1.5-CPU quota, which is the shape of a
+    # two-core CI runner, read 28.4s. Three times the slowest of those is 85s.
+    #
+    # This budget is not a claim about what Paperless owes anyone. It is the
+    # line above which this job stops being a regression test for the pipeline
+    # and becomes a report on how loaded the runner was.
+    budget: 90s
+  inflight:
+    mode: long_requests
+    request:
+      # Named rather than left to the readiness fallback. The fallback needs the
+      # readiness path to be at least ten times the measurement jitter, and this
+      # one answers in about 13ms — on a quiet host that clears the bar and on a
+      # busy one it does not, which is a fixture that decides by luck.
+      # Twenty concurrent requests against the same path put real queueing in
+      # front of it, and the window is derived from that measured baseline.
+      path: /accounts/login/
+      expected_duration: 5s
+    concurrent: 20
+    # Left unset on purpose: derived from the baseline burst this run measured,
+    # not from a number pinned on one machine's timings.
+
+timeouts:
+  # Three times the startup this application needs here, because the CI runner
+  # has two cores and this one has eleven. Crossing this wall aborts the run
+  # with nothing measured; crossing contracts.startup.budget above only reports.
+  startup: 300s
+  shutdown: 60s

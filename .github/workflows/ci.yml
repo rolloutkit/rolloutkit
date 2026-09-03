@@ -158,3 +158,73 @@ jobs:
           path: matrix-results.jsonl
           if-no-files-found: warn
           retention-days: 90
+
+  oss-app:
+    name: Third-party application
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Nothing here can pass if the fast suite is red.
+    needs: fast
+    # The same gate as the Docker matrix: it costs a 2.4GB pull and five
+    # minutes, which a push to a topic branch does not earn.
+    if: >-
+      github.event_name == 'pull_request'
+      || github.ref == 'refs/heads/main'
+      || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group dev
+
+      # Pulled here rather than inside the run, so a slow registry shows up as a
+      # slow step instead of as a startup this tool is supposed to be measuring.
+      # The digests are the ones in the fixture; keeping them in one place would
+      # mean parsing YAML in a shell, and this way a mismatch is a failed pull
+      # rather than a silently different image.
+      - name: Pull the pinned images
+        run: |
+          docker pull ghcr.io/paperless-ngx/paperless-ngx@sha256:5ab4f4f9bb099a36bec3e092906ea3e611323c5f18dc5cc38c76a1d540bdca9c
+          docker pull postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+          docker pull redis@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+          docker pull python:3.12-slim
+
+      # The exit code is carried to the next step rather than acted on here.
+      # This fixture is expected to exit 0 with a WARN, and which code it
+      # returned is one of the things being asserted — letting the shell fail on
+      # a non-zero would replace that comparison with "rolloutkit returned
+      # something", and letting it pass would drop the check entirely.
+      - name: Measure Paperless-ngx
+        env:
+          ROLLOUTKIT_COMMIT: ${{ github.sha }}
+        run: |
+          uv run rolloutkit test \
+            -c fixtures/oss/paperless-ngx/rolloutkit.yaml \
+            --format json > oss-run.json || echo "$?" > oss-exit-code
+          test -f oss-exit-code || echo 0 > oss-exit-code
+
+      - name: The run has to match what was pinned
+        run: |
+          uv run python scripts/assert_oss_run.py \
+            oss-run.json \
+            fixtures/oss/paperless-ngx/expected.yaml \
+            "$(cat oss-exit-code)"
+
+      # `if: always()` for the same reason as the matrix: the run worth keeping
+      # is the one that failed, and the JSON is the only thing that says why.
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: oss-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: oss-run.json
+          if-no-files-found: warn
+          retention-days: 30

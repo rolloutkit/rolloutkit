@@ -1,0 +1,78 @@
+# What the Paperless-ngx run has to produce, and nothing more.
+#
+# Read by `scripts/assert_oss_run.py`. Every line was chosen after four runs
+# agreed on it — harness `8e6be44`, host H1 (Darwin 25.5.0 / docker 29.7.2 /
+# 11cpu), 2026-09-03 — and nothing is pinned that was measured once. What is
+# pinned is the *shape* of the answer, which branch each contract took, never a
+# millisecond: a duration that varies between an eleven-core laptop and a
+# two-core runner would make this job a report on the runner rather than on the
+# pipeline. The numbers those runs produced are in `unpinned` at the bottom,
+# where they are a record rather than an assertion.
+#
+# A failure here means one of two things, and they are worth telling apart
+# before anything is edited: either this repository changed what it measures, or
+# upstream changed what it does. The image is pinned by digest, so the second
+# can only happen in a commit that moved the digest.
+
+# WARN, not PASS: SP004 has nothing to report a drain mechanism for, because
+# this configuration declares none. That is a true finding about the profile
+# written in `rolloutkit.yaml`, not a defect in Paperless.
+#
+# The run exits 0 all the same, because `--fail-on` defaults to `none` and
+# nothing is passed here: report first, gate second. The exit code is still
+# pinned, and pinned separately from `result`, because it is a different claim
+# — it is the gating policy applied to the verdict, it appears nowhere in the
+# report, and a change to the default would leave `result` untouched while
+# changing what every pipeline that shells out to this tool does.
+exit_code: 0
+result: WARN
+
+# The measurement has to have come from inside the run network. A step down to
+# host traffic is legitimate behaviour on a host that cannot support a sidecar,
+# and a CI runner is not such a host — so here it would mean the sidecar broke
+# and the report quietly said so in a field nobody reads.
+probe_location: sidecar
+
+# Both dependencies were waited for rather than raced. This is the only place
+# in the repository where `wait_for` runs against an application that genuinely
+# needs it: Paperless runs its migrations at startup and gives up if Postgres
+# is not listening.
+dependency_gates:
+  db: connected
+  broker: connected
+
+contracts:
+  SP001:
+    status: PASS
+    branch: within_budget
+  SP002:
+    status: PASS
+    branch: stable
+  SP003:
+    status: PASS
+    branch: shutdown_observed
+  SP004:
+    status: WARN
+    branch: none_uncovered
+  SP005:
+    status: PASS
+    branch: all_completed
+  SP006:
+    status: PASS
+    branch: within_budget
+
+# Measured every run, deliberately left unpinned, with the reason. A number that
+# is going to move is worse than no number: it either gets widened until it
+# means nothing, or it goes red for the weather.
+unpinned:
+  - startup_ms: 19300-21400 locally, 28400 behind a 1.5-CPU quota. Bounded by
+      contracts.startup.budget in the config, which is what SP001 actually
+      judges.
+  - shutdown_ms: 6620-6790 locally and 6480 behind the quota — s6 stops its
+      services on timers, so this barely moves with CPU. Bounded by SP006's
+      30s budget with 23s to spare.
+  - inflight_at_sigterm: 17, 20 and 19 across the three runs. The count depends
+      on where the derived signal lands inside a burst of twenty; the branch,
+      `all_completed`, does not, and that is what is pinned above.
+  - accept_window_ms: 41.7, 49.1 and 92.6. Resolved to the 50ms accept-probe
+      interval, so this is three samples of a quantity that cannot be finer.

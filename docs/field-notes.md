@@ -2899,3 +2899,146 @@ throwaway script that starts the container directly and polls readiness — no
 rolloutkit in the path, so the sidecar and probe cost are excluded by
 construction; the three-run comparison set is rolloutkit's own
 `startup resolution` line from the readme-material captures.
+
+---
+
+## A row narrower than its runner, and the second one behind it (2026-09-03; rolloutkit commit: 04a719f7ff12c67988acea16d9141bc4b7c5d264)
+
+Verifying `48bebe9` before tagging 0.1.1, the Docker matrix reported
+`slow-shutdown`: `SP006: expected WARN, got FAIL — exited in 6.47s, 470ms past
+the 6s budget`. The same tree ran 46/46 green locally, the fixture and the row
+were byte-identical to the two commits where CI had just been green, and a
+rerun passed. That is the shape of a flake and says nothing on its own about
+which side is wrong.
+
+### The obvious hypothesis, and the number that killed it
+
+The suspicion was a stall in that one container: H1 had the row at 5091.6–5128.9ms
+over n=8, mean 5104.4, stdev 14.5ms, and 6.47s is roughly 94σ out. A single
+discrete event, not a distribution tail.
+
+It was not confined to that container. Comparing the failing run with four green
+ones on the same tree, row by row, **28 of the 30 rows that report SP006 were
+slower**, and the matrix as a whole went from 343.5s of row time to 386.1s —
+12.4% slower across the board. Nothing had stalled; the runner was slow.
+
+### The overhead is absolute and does not scale with what it measures
+
+That is the reading that decided the fix. Comparing each row's measured shutdown
+in the failing run against its mean over the four green ones:
+
+| row | shutdown | excursion |
+| --- | --- | --- |
+| `prestop-near-deadline` | 25 062 ms | +58 ms |
+| `drains-in-app-thin-margin` | 11 562 ms | +188 ms |
+| `slow-shutdown` | 5 070 ms | **+1400 ms** |
+| `incorrect-readiness` | 58 ms | +404 ms |
+
+The cost of observing a shutdown is additive and uncorrelated with the duration
+being observed. A 25s shutdown moved by 58ms in the same run where a 5s one
+moved by 1.4s and a 58ms one moved by 404ms.
+
+### Why this row and no other
+
+`slow-shutdown` was the only row with a verdict boundary within a second of its
+measured value. `thin_margin` fires when the margin is under `MARGIN_WARN_RATIO`
+of the budget, so a 6s budget gives a band 1200ms wide, and the row sat 930ms
+from the FAIL edge and 270ms from the PASS edge. Those two numbers always sum to
+the band width, so **no placement inside a 1.2s band survives a 1.4s
+excursion** — re-centring the row would have traded FAIL-side headroom for
+PASS-side headroom it did not need, since a fixed sleep can overrun and cannot
+undershoot.
+
+The other row on this branch already knew it. From
+`drain-window/prestop-near-deadline.yaml`, written weeks earlier:
+
+> A wide absolute window keeps the intended 16.7% margin clear of daemon event
+> jitter on both Docker Desktop and loaded native-Linux runners.
+
+That row carries a 4.9s absolute margin and rode through this same failing run
+at +58ms. The decision had been made once and never applied to the second row on
+the branch.
+
+### The fix, and the run that proved it
+
+The ratio is what the fixture proves, so the ratio is unchanged at 83.3% of the
+budget. Only the absolute window grew — `SHUTDOWN_DELAY_MS` 5000 → 25000,
+`termination_grace_period` 6s → 30s — taking the margin from 930ms to 4.9s.
+`MARGIN_WARN_RATIO`, the branch, and the matrix expectation are untouched, and
+the distribution packages `src/rolloutkit` alone, so no artefact carries the
+change.
+
+| reading | shutdown | margin | branch |
+| --- | --- | --- | --- |
+| H1 | 25.11s | 4.89s | `thin_margin` |
+| CI `33731437251` | 25.11s | 4.89s | `thin_margin` |
+| CI `33731444477` | 25.07s | 4.93s | `thin_margin` |
+| CI `33731430788` | 25.86s | 4.14s | `thin_margin` |
+
+The last row is the proof. `33731430788` is the slowest runner in the whole set
+— 450.7s of row time against a 343.5s baseline, 31% slower, worse than the 12%
+run that broke the fixture in the first place. The row moved +790ms and stayed
+WARN with 4.14s to spare. Under the old budget that same excursion would have
+left 140ms.
+
+### The second row, which the same run found
+
+`33731430788` failed anyway, on `startup-within-resolution`: `ready in 513ms,
+over the 100ms budget`, against 256–260ms on every other CI run.
+
+`within_resolution` holds while `0 < overrun ≤ resolution`, and
+`startup_resolution_ms` is the container create/start overhead plus one
+`READINESS_POLL_INTERVAL_MS`. The band is therefore `(budget, budget +
+resolution]`, and its width is a measured property of the host:
+
+| host | n | startup | overrun | resolution (= band width) |
+| --- | --- | --- | --- | --- |
+| H1 | 3 | 157–160 ms | 57–60 ms | 179–198 ms |
+| CI, normal | 6 | 256–260 ms | 156–160 ms | 214–234 ms |
+| CI, 12% slow | 1 | 309 ms | 209 ms | 416 ms |
+| CI, 31% slow | 1 | **513 ms** | 413 ms | under the overrun |
+
+Readiness is sampled every 100ms, so each extra poll the application needs adds
+100ms to the overrun while the resolution only grows if Docker's create/start
+round trip gets slower. Under CPU contention the Python interpreter start moved
+and the daemon round trip did not, which is precisely what the fixture's own
+comment predicted when it was pinned to the smallest server image.
+
+This one has no calibration fix, and that is the finding:
+
+- The budget cannot be raised. H1's startup is 157ms, so a budget above roughly
+  130ms flips H1 to `within_budget` and leaves `within_resolution` with no live
+  coverage at all.
+- The band cannot be widened. Its width is `resolution`, which is measured
+  rather than configured, and the poll interval is a module constant with no
+  config surface.
+- The observed excursion, +255ms, is wider than the band on both hosts.
+
+The row is byte-identical to what shipped in `v0.1.0`, so this is not a
+regression — it is a property 0.1.0 has too, and it did not hold the 0.1.1 tag.
+
+### Open problem
+
+`startup-within-resolution` asserts a fixed relation between two host-dependent
+quantities that do not move together. Three directions, none taken yet:
+
+1. Make the readiness poll interval configurable and give this row a coarse one,
+   so one sample dominates and application-start noise stops adding steps. That
+   is a new config surface, not a fix.
+2. Move `within_resolution` from a live row to a catalogue `proof`. The
+   repository has precedent in both directions, including a branch that was
+   reclassified `decision_unit` and later given a live fixture again.
+3. Leave it and let it flake at roughly one run in eight, which is the option
+   the flaky-fixture rule exists to refuse.
+
+### How these were taken
+
+Per-row records come from the `matrix-results-<run>-<attempt>` artifacts written
+by `tests/conftest.py`. Before-readings on `48bebe9`, CI runs `33728169533`
+(failing), `33729147880`, `33729150916`, `33729156805`, `33729159834`;
+after-readings on `4346095`, runs `33731430788`, `33731437251`, `33731444477`,
+and on `04a719f`, run `33731418215`. H1 is `Darwin 25.5.0 / docker 29.7.2 /
+11cpu`; the runner is `Linux 6.17.0-1022-azure / docker 28.0.4 / 4cpu /
+x86_64`. H1 readings for `slow-shutdown` are the n=8 batch taken before the fix
+plus a single confirming run after it; the `startup-within-resolution` H1
+readings are three consecutive runs of that row alone.

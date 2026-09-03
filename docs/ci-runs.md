@@ -96,6 +96,19 @@ attempt). `.github/workflows/ci.yml` uploads it as `matrix-results-<run>-<attemp
 with `if: always()`, which is the part that matters: the record worth keeping is
 the one from the red run, and a step that only runs on success would drop it.
 
+Each contract also carries `measured`: the numbers it judged, verbatim from the
+report's `actual`. The verdict says which side of a boundary a row fell on and
+never how far from it, and that distance is the whole question when a row goes
+red on a slow host — a measurement 930ms from its FAIL line and one 4.9s from it
+are the same branch and a different fixture. Two rows failed on 2026-09-03 and
+neither margin was in the record: `slow-shutdown` had to be reconstructed from
+the fixture's budget and a duration parsed out of an English sentence, and
+`startup-within-resolution` could not be reconstructed at all, because the band
+it is judged against is measured per run and published nowhere else. Contract
+`evidence` is deliberately not kept — it holds per-request lists that grow with
+the traffic a row drives, and one bounded line per row is what makes these
+artifacts concatenable.
+
 The file is one session's evidence — the run truncates it at session start — and
 records are appended as rows finish, so a cancelled or timed-out job still
 leaves the rows it got through. Artifacts are self-contained, so several can be
@@ -105,6 +118,17 @@ concatenated:
 jq -r 'select(.row == "in-app-readiness-never-changes")
        | [.run.commit[0:12], .run.github_run_attempt, .outcome,
           .actual.SP004.status, .actual.SP004.branch] | @tsv' matrix-results*.jsonl
+```
+
+The same shape reads a margin across runs, which is the form a calibration
+argument takes — how close the row has been running, on which host, and whether
+the distance moved:
+
+```
+jq -r 'select(.row == "slow-shutdown")
+       | [.run.commit[0:12], .run.os, .outcome,
+          .actual.SP006.measured.shutdown_duration_ms,
+          .actual.SP006.measured.margin_ms] | @tsv' matrix-results*.jsonl
 ```
 
 Artifacts expire on GitHub's schedule (90 days here). What survives past that is

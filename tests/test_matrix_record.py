@@ -61,6 +61,38 @@ def test_the_record_carries_enough_to_tell_two_runs_apart() -> None:
     assert "github_run_id" in identity and "github_run_attempt" in identity
 
 
+def test_the_record_keeps_the_numbers_a_contract_judged() -> None:
+    """A verdict says which side of the line a row fell on, never by how much.
+
+    The margin is the whole question when a row goes red on a slow host: a
+    measurement 930ms from its FAIL boundary and one 4.9s from it are the same
+    verdict and a different fixture. Reconstructing it after the fact needs the
+    budget from the fixture and the duration parsed out of an English sentence,
+    and for `startup-within-resolution` it is not possible at all — the band is
+    measured per run and published nowhere else.
+    """
+    observed = matrix_module._observed(
+        {
+            "SP006": {
+                "status": "WARN",
+                "branch": "thin_margin",
+                "summary": "exited in 25.11s, leaving only 4.89s of the 30s budget",
+                "actual": {"shutdown_duration_ms": 25110, "margin_ms": 4890},
+                "evidence": {"per_request": ["one entry per request driven"]},
+            }
+        }
+    )["SP006"]
+
+    assert observed["measured"]["margin_ms"] == 4890, (
+        "the record dropped the numbers the contract judged, so a red row can "
+        "only be compared by re-reading its summary in English"
+    )
+    assert "evidence" not in observed, (
+        "evidence grows with the traffic a row drives; one bounded line per row "
+        "is what makes these artifacts concatenable"
+    )
+
+
 def test_ci_uploads_the_record_even_when_the_matrix_fails() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     steps = workflow["jobs"]["docker"]["steps"]

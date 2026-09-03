@@ -59,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing had gone wrong. No verdict rule, warning ratio or expected branch
   changed — the ratio the fixture proves is what it was, and only the absolute
   window grew, the way `prestop-near-deadline` was already written.
+- The Docker matrix's per-row record now keeps the numbers each contract judged,
+  not only its status, branch and summary. Both rows that failed on 2026-09-03
+  turned on a margin the record did not hold: `slow-shutdown`'s had to be
+  rebuilt from the fixture's budget and a duration read out of an English
+  sentence, and `startup-within-resolution`'s could not be rebuilt at all,
+  because the band it is judged against is measured per run and appears nowhere
+  else. Contract `evidence` is still left out — it grows with the traffic a row
+  drives, and one bounded line per row is what lets artifacts be concatenated.
 
 ## [0.1.1] - 2026-09-03
 

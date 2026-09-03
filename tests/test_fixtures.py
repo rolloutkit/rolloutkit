@@ -136,6 +136,39 @@ def built_images() -> None:
             pytest.fail(f"building {image['name']} failed:\n{build.stderr[-3000:]}")
 
 
+def _observed(results: dict[str, dict]) -> dict[str, dict]:
+    """What the row saw, in the shape the artifact keeps.
+
+    The verdict alone — status, branch, summary — answers *was this row green
+    before*, and not the question that follows it the moment the answer is no:
+    *by how much, and how far from the boundary?* On 2026-09-03 `slow-shutdown`
+    went red on a runner where nothing had gone wrong, and the record could not
+    say how close it had been running: the summary carried the duration, the
+    budget lived in the fixture, and the margin had to be reconstructed by hand
+    from the two. `startup-within-resolution` failed in the same run and could
+    not be reconstructed at all, because the band it is judged against —
+    `startup_resolution_ms` — is measured per run and appears nowhere else.
+
+    Every one of those numbers already exists: a contract publishes what it
+    judged in the report's `actual`, and the recorder was throwing it away. So
+    it is kept verbatim, under `measured` rather than a second `actual`, since
+    the enclosing key already means "what happened" against `expect`.
+
+    `evidence` stays out. It carries per-request lists that grow with the
+    traffic a row drives, and one self-contained line per row is the property
+    that lets artifacts from different runs be concatenated and read with `jq`.
+    """
+    return {
+        contract_id: {
+            "status": result["status"],
+            "branch": result["branch"],
+            "summary": result["summary"],
+            "measured": result.get("actual", {}),
+        }
+        for contract_id, result in results.items()
+    }
+
+
 @pytest.mark.parametrize("entry", _fixtures(), ids=lambda e: e["name"])
 def test_fixture_matches_the_matrix(
     entry: dict, built_images: None, matrix_row: dict
@@ -179,14 +212,7 @@ def test_fixture_matches_the_matrix(
 
     results = {c["id"]: c for c in report["contracts"]}
     matrix_row["run_id"] = report.get("run_id", "")
-    matrix_row["actual"] = {
-        contract_id: {
-            "status": result["status"],
-            "branch": result["branch"],
-            "summary": result["summary"],
-        }
-        for contract_id, result in results.items()
-    }
+    matrix_row["actual"] = _observed(results)
     for contract_id, expectation in entry["expect"].items():
         assert contract_id in results, f"{contract_id} was not evaluated"
         result = results[contract_id]

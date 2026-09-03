@@ -16,10 +16,13 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tarfile
 import tomllib
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -180,3 +183,63 @@ def test_the_sidecar_check_passes_only_on_a_sidecar_run(tmp_path: Path) -> None:
         == 1
     )
     assert _sidecar_check(tmp_path, {}) == 1
+
+
+UV = shutil.which("uv")
+
+
+@pytest.mark.skipif(UV is None, reason="uv is not on PATH")
+def test_the_build_writes_the_revision_into_the_wheel(tmp_path: Path) -> None:
+    """The one test here that actually runs the build backend.
+
+    Everything else about provenance can be checked by calling functions, and
+    none of it would have caught this: the defect was that no build wrote the
+    module the runtime reads, and only a build can prove that it now does.
+    """
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    done = subprocess.run(
+        [UV, "build", "--wheel", "--out-dir", str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "ROLLOUTKIT_COMMIT": commit},
+    )
+    assert done.returncode == 0, done.stderr
+
+    (wheel,) = tmp_path.glob("*.whl")
+    with zipfile.ZipFile(wheel) as archive:
+        stamp = archive.read("rolloutkit/_build_info.py").decode()
+
+    assert f'COMMIT = "{commit}"' in stamp
+
+
+def _provenance_check(tmp_path: Path, commit: str, expected: str) -> int:
+    report = tmp_path / "run.json"
+    report.write_text(json.dumps({"rolloutkit_commit": commit}))
+    done = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "assert_provenance.py"),
+            str(report),
+            expected,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode
+
+
+def test_the_provenance_check_passes_only_on_a_stamped_run(tmp_path: Path) -> None:
+    """Both failure directions, because they are different failures.
+
+    `unknown` is a build that stamped nothing, which is what 0.1.0 shipped. A
+    revision that is merely wrong is worse and quieter: it reads as an answer,
+    and nothing downstream can tell it from a right one.
+    """
+    released = "f" * 40
+
+    assert _provenance_check(tmp_path, released, released) == 0
+    assert _provenance_check(tmp_path, "unknown", released) == 1
+    assert _provenance_check(tmp_path, "a" * 40, released) == 1

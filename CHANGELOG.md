@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-03
+
+### Fixed
+
+- An installed rolloutkit now reports the revision it was built from. Every
+  report carries `rolloutkit_commit`, and the runtime resolved it from
+  `ROLLOUTKIT_COMMIT` or from an enclosing Git checkout — a wheel has neither,
+  so every measurement made with 0.1.0 outside a checkout said `"unknown"`. The
+  build now writes the revision into the distribution (`hatch_build.py`), and
+  the runtime reads it between the environment variable and the checkout. CI
+  did not see this because it runs from a checkout with the variable set; the
+  wheel-install job now runs the installed copy with neither and fails unless
+  the report names the revision that built it.
+- A copy installed into a venv created inside an unrelated Git repository no
+  longer reports *that* repository's HEAD as `rolloutkit_commit`. The checkout
+  search walked up from `site-packages` and accepted the first `.git` it found,
+  which on that layout is somebody else's. It now accepts a checkout only when
+  the checkout is the one tracking this package, and answers `"unknown"`
+  otherwise — a wrong revision reads as an answer, which is worse than none.
+
 ## [0.1.0] - 2026-08-28
 
 First release. `Changed`, `Removed` and `Fixed` below are relative to the
@@ -223,5 +243,6 @@ First release. `Changed`, `Removed` and `Fixed` below are relative to the
   note however good the handler mask looks, and an unmeasured `/proc/1/status`
   is not evidence and leaves the static reading standing.
 
-[Unreleased]: https://github.com/rolloutkit/rolloutkit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rolloutkit/rolloutkit/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rolloutkit/rolloutkit/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rolloutkit/rolloutkit/releases/tag/v0.1.0

@@ -30,7 +30,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Ruff
-        run: uv run ruff check src tests scripts
+        run: uv run ruff check src tests scripts hatch_build.py
 
       - name: Run the suite that needs no daemon
         run: uv run pytest -q -m "not docker"
@@ -56,8 +56,13 @@ jobs:
           python-version: "3.13"
           enable-cache: true
 
+      # The revision is knowable here and nowhere downstream: the wheel this
+      # step produces is installed outside the checkout and run with nothing in
+      # its environment, which is the situation every user is in.
       - name: Build the distribution
         run: uv build --wheel
+        env:
+          ROLLOUTKIT_COMMIT: ${{ github.sha }}
 
       # Outside the checkout and built from the wheel alone, so the resolver
       # answers the question a user's machine asks: what does `rolloutkit`
@@ -90,6 +95,12 @@ jobs:
 
       - name: The sidecar has to have started
         run: python3 scripts/assert_sidecar.py run.json
+
+      # No ROLLOUTKIT_COMMIT in this environment and no checkout under the
+      # installed copy, so the only way the report can name this revision is
+      # that the build wrote it into the wheel.
+      - name: The installed copy has to know which revision built it
+        run: python3 scripts/assert_provenance.py run.json "$GITHUB_SHA"
 
       - name: Keep the report
         if: always()

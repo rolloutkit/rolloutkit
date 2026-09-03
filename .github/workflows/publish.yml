@@ -52,17 +52,41 @@ jobs:
           }
 
       - name: Ruff
-        run: uv run ruff check src tests scripts
+        run: uv run ruff check src tests scripts hatch_build.py
 
       - name: Run the suite that needs no daemon
         run: uv run pytest -q -m "not docker"
 
       - name: Build the distribution
         run: uv build
+        env:
+          ROLLOUTKIT_COMMIT: ${{ github.sha }}
 
       - name: The built metadata must be installable and correctly described
         run: |
           uv run --with twine --no-project twine check --strict dist/*
+
+      # 0.1.0 went out unstamped, so every copy of it reports
+      # `rolloutkit_commit: "unknown"` and no measurement made with it can name
+      # the harness that produced it. A version number is spent once and a file
+      # on PyPI cannot be replaced, so this is checked before the upload rather
+      # than discovered after it — from a venv outside the checkout, with the
+      # variable unset, because that is the only place the wheel has to answer
+      # on its own.
+      - name: The wheel must know which revision it was built from
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/release-check"
+          uv pip install --python "$RUNNER_TEMP/release-check/bin/python" dist/*.whl
+          reported="$(env -u ROLLOUTKIT_COMMIT \
+            "$RUNNER_TEMP/release-check/bin/rolloutkit" --version)"
+          echo "$reported"
+          case "$reported" in
+            *"($GITHUB_SHA)"*) ;;
+            *)
+              echo "::error::the wheel reports '$reported', not $GITHUB_SHA"
+              exit 1
+              ;;
+          esac
 
       - name: Upload the distribution
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

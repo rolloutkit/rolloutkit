@@ -121,11 +121,24 @@ not imported — read them, they are the list of what to write by hand:
       services.cache.wait_for.tcp with the port cache listens on to wait for it
     warning service db: healthcheck is not imported; for a dependency, wait on
       the port it listens on with services.<name>.wait_for.tcp
+    warning service web.env_file names docker-compose.env, which does not
+      exist; the reference is imported as written, so the generated config will
+      be refused until that file is there or the variables it would have set
+      are written into the config's own env
 
 Every imported dependency produces one of the first two lines, because none of
 them arrives with a gate: Compose records what starts before what and never a
 port. The second wording means the Compose author had already asked for a wait
 and the import dropped it.
+
+The last line is the one that stops a run before anything is pulled, and it is
+the ordinary case rather than a rare one. `env_file` is imported as a reference
+and never inlined — inlining would copy whatever that file holds, credentials
+included, into a config about to be committed beside the Compose file — so a
+project that ships its env file separately, as most do, generates a config that
+cannot load. Answer it now, not at step 4: either put that file where the path
+says, or open it, read what it sets, and write those variables into `target.env`
+by hand. There is no third option that involves running anything.
 
 ### 2. Fill in the TODOs
 
@@ -231,7 +244,8 @@ In this order:
        env_file not found: .../docker-compose.env
 
    because Compose's `env_file:` was imported as a path and upstream ships that
-   file separately. Exit 3 is infrastructure. Exit 4 is a rolloutkit defect and
+   file separately — which `init` warned about at step 1, so reaching it here
+   means the warning was read past. Exit 3 is infrastructure. Exit 4 is a rolloutkit defect and
    is itself a finding worth writing down.
 
 ---
@@ -321,7 +335,10 @@ steps above. What the walk cost, in the terms this file asks for:
 - **One thing it produced that had to be removed.** `env_file:
   docker-compose.env`, imported as an absolute path to a file upstream ships
   separately. It failed at load time with exit 2 and named the field, which is
-  the right failure, but the six variables that file carries — the database
+  the right failure arriving in the wrong place: everything needed to say it was
+  known when `init` resolved the path. That walk is where the warning above came
+  from — `init` now names the missing file at generation time. What it still
+  cannot do is supply it: the six variables that file carries — the database
   user, name and password, and the secret key — had to be found and written by
   hand before the target would start.
 - **The verdict**: WARN. SP001 PASS (22.64s of a 90s budget), SP002 PASS, SP003

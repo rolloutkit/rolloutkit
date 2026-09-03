@@ -1,18 +1,28 @@
-# Same image, opposite finding. The handler now takes five seconds and then
-# exits 0 — nothing is violated, but only a second of the six-second budget is
-# left over. Slow is not late, and SP006 has to say so with a WARN rather than
-# a FAIL.
+# Same image, opposite finding. The handler takes its time and then exits 0 —
+# nothing is violated, and only a sixth of the budget is left over. Slow is not
+# late, and SP006 has to say so with a WARN rather than a FAIL.
+#
+# The numbers are large on purpose. This row spent 5s of a 6s budget until
+# 2026-09-03, which put the FAIL boundary 930ms away from the measured value —
+# and the shutdown a run observes carries an absolute overhead that does not
+# scale with the sleep. On a loaded GitHub runner that overhead was measured at
+# +1.4s here while a 25s shutdown in the same run moved by 58ms, so the row
+# went FAIL on a host where nothing had gone wrong. The ratio is what this
+# fixture proves, so the ratio is unchanged at 83.3%; only the absolute window
+# grew, until the margin is several times the jitter rather than under it.
+# `drain-window/prestop-near-deadline.yaml` reaches the same branch and was
+# already written this way, for the same reason.
 version: 1
 
 target:
   image: rk-fixture-ignores
   port: 8000
   env:
-    SHUTDOWN_DELAY_MS: "5000"
+    SHUTDOWN_DELAY_MS: "25000"
 
 deployment:
   platform: kubernetes
-  termination_grace_period: 6s
+  termination_grace_period: 30s
   drain:
     strategy: none
 

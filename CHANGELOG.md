@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The `slow-shutdown` matrix row runs on a 30s budget instead of 6s, with the
+  same 83.3% of it spent shutting down. It reached the `thin_margin` branch with
+  930ms between the measured value and the FAIL boundary, and the shutdown a run
+  observes carries an absolute overhead that does not scale with the sleep: on a
+  loaded GitHub runner that overhead reached 1.4s on this row while a 25s
+  shutdown in the same run moved by 58ms. The row went FAIL on a host where
+  nothing had gone wrong. No verdict rule, warning ratio or expected branch
+  changed — the ratio the fixture proves is what it was, and only the absolute
+  window grew, the way `prestop-near-deadline` was already written. Listed here
+  rather than under 0.1.1 because the distribution packages `src/rolloutkit`
+  alone: no artefact carries this change.
+
 ## [0.1.1] - 2026-09-03
 
 ### Fixed

@@ -189,9 +189,11 @@ fixtures:
     image: rk-fixture-ignores
     config: ignores-sigterm/slow-shutdown.yaml
     description: >
-      Same image, five seconds of cleanup, a six second budget. Nothing is
+      Same image, cleanup that runs to five sixths of the budget. Nothing is
       violated and the margin is thin — the WARN that separates "slow" from
-      "late".
+      "late". The window is wide in absolute terms because the ratio is what
+      this row proves and a narrow one measured the runner instead; the fixture
+      says what was measured.
     expect:
       SP001: {status: PASS, branch: within_budget}
       SP003: {status: PASS, branch: shutdown_observed}

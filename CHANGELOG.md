@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-03
+
 ### Added
 
 - `services.<name>.wait_for: { tcp: PORT, budget: 30s }` holds the run until
@@ -320,6 +322,7 @@ First release. `Changed`, `Removed` and `Fixed` below are relative to the
   note however good the handler mask looks, and an unmeasured `/proc/1/status`
   is not evidence and leaves the static reading standing.
 
-[Unreleased]: https://github.com/rolloutkit/rolloutkit/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/rolloutkit/rolloutkit/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/rolloutkit/rolloutkit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rolloutkit/rolloutkit/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rolloutkit/rolloutkit/releases/tag/v0.1.0

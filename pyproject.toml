@@ -1,6 +1,6 @@
 [project]
 name = "rolloutkit"
-version = "0.1.1"
+version = "0.1.2"
 description = "Measure what a container actually does during startup and shutdown. Evidence, not guesses."
 readme = "README.md"
 requires-python = ">=3.12"

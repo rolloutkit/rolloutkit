@@ -68,7 +68,18 @@ TESTS = Path(__file__).resolve().parent
 #: not already decided. The floor is not a comparison against the host, and a
 #: readiness endpoint with no work behind it is under it on every machine tried,
 #: so the branch went back to live-image proof and the row came back with it.
+#: SP001.within_resolution joined the set on 2026-09-03. Its band is
+#: `startup_resolution_ms` wide — Docker's create/start round trip, paid before
+#: the interval it judges begins — while the value inside it is the target's
+#: boot time on a 50ms TCP poll grid. Across two hosts the live row that
+#: covered it landed inside the band 37 times and never further than 52.8ms
+#: from an edge, against a poll step of 100ms; no budget value reaches 55ms, so
+#: there was nothing to calibrate. It went red once in CI on a runner 31% slower than
+#: normal, with the same image and the same commit that were green either side
+#: of it — the verdict varying by machine rather than by target, which is what
+#: this classification is for.
 REVIEWED_DECISION_UNIT = {
+    ("SP001", "within_resolution"),
     ("SP004", "budget_below_teardown_floor"),
     ("SP006", "budget_below_teardown_floor"),
 }

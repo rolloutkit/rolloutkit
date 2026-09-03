@@ -85,15 +85,18 @@ fixtures:
         - "The window closed early"
         - "The experiment and traffic measurement completed"
 
-  - name: startup-within-resolution
-    image: rk-fixture-stdlib
-    config: good-fastapi-prestop/startup-within-resolution.yaml
-    description: >
-      A minimal stdlib listener becomes ready after the nominal 100ms
-      budget but inside the run's measured Docker startup resolution. Keeping
-      framework import time out makes this timing branch stable across runners.
-    expect:
-      SP001: {status: PASS, branch: within_resolution}
+  # SP001.within_resolution had a row here until 2026-09-03, and it is missing
+  # on purpose rather than by oversight. The branch's band is
+  # startup_resolution_ms wide — Docker's create/start round trip, paid before
+  # the interval being judged begins — while the value inside it is the target's
+  # boot time, detected on a 50ms TCP poll grid. The two are host-dependent and
+  # do not move together. The row landed inside the band 37 times across two
+  # hosts and never further than 52.8ms from an edge, against a poll step of
+  # 100ms; a 38th run, on a CI runner 31% slower than normal, landed outside it,
+  # and no budget value reaches 55ms, so there was nothing to recalibrate to. It
+  # is classified decision_unit in contracts/catalog.py and proved by
+  # tests/test_contracts.py. Adding a row back here would re-create a coin toss,
+  # not coverage.
 
   - name: good-fastapi-prestop
     image: rk-fixture-good

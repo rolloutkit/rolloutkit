@@ -67,6 +67,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because the band it is judged against is measured per run and appears nowhere
   else. Contract `evidence` is still left out — it grows with the traffic a row
   drives, and one bounded line per row is what lets artifacts be concatenated.
+- `SP001.within_resolution` is now classified `decision_unit` and proved by a
+  unit test rather than by a live matrix row. The branch's band is
+  `startup_resolution_ms` wide, which is Docker's create/start round trip — a
+  cost paid before the interval SP001 judges begins — while the value inside it
+  is the target's boot time on a 50ms TCP poll grid. Measured 37 times across
+  two hosts, the row that covered it never got further than 52.8ms from an edge
+  against a 100ms poll step, and no budget value reaches 55ms, so it was not a
+  calibration problem: the verdict was varying by machine rather than by target,
+  which is what the classification is for. The row and its fixture config are
+  gone and a comment stands where the row was.
+- Every matrix row now asserts that the startup resolution was measured from a
+  real daemon — that `container_start_overhead_ms` is a positive duration and
+  that the published resolution is that overhead plus one readiness interval. No
+  magnitude is pinned. Until now every reference to that overhead in the suite
+  was a fabricated constant, so the number the branch above resolves against had
+  no live proof of any kind, and dropping the row would have left it with none.
 
 ## [0.1.1] - 2026-09-03
 

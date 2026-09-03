@@ -30,6 +30,7 @@ from rolloutkit.contracts.inflight import (
     MIN_JITTER_RATIO,
     MIN_READINESS_WINDOW_MS,
 )
+from rolloutkit.probes.http import READINESS_POLL_INTERVAL_MS
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
@@ -69,6 +70,39 @@ def _assert_the_window_was_real(entry: dict, result: dict) -> None:
         f"jitter, under the {MIN_JITTER_RATIO}x rolloutkit itself requires "
         "before it will treat the boundary as meaningful. A fixture may not "
         "assert a counted branch from a window the tool would not trust."
+    )
+
+
+def _assert_the_resolution_was_measured(entry: dict, result: dict) -> None:
+    """The one number in SP001 no fabricated value can stand in for.
+
+    SP001's resolution branch is proved by handing the decision function known
+    values, because its decision is arithmetic. That leaves the source of the
+    band it resolves against unproved, and a fabricated overhead is the failure
+    arithmetic cannot catch: the comparison still resolves, the verdict still
+    renders, and the answer is confidently wrong. Every other reference to
+    container_start_overhead_ms in this suite is a literal 752.0.
+
+    So this asserts no magnitude. The overhead is host plumbing — 73-120ms over
+    ten runs on one Docker Desktop, 127-131ms on the CI runner — and pinning a
+    number measured here would make it a test of the machine it last ran on. It
+    asserts that a real daemon produced one at all, that it is a duration, and
+    that the resolution published from it is that overhead plus the one
+    readiness interval its own definition names.
+    """
+    measured = result["actual"]
+    overhead = measured["container_start_overhead_ms"]
+    resolution = measured["startup_resolution_ms"]
+    assert overhead is not None and overhead > 0, (
+        f"{entry['name']}: container_start_overhead_ms is {overhead}, which is "
+        "not a duration. Every SP001 budget comparison is resolved against it, "
+        "and a missing one silently widens or erases the band."
+    )
+    assert resolution == pytest.approx(overhead + READINESS_POLL_INTERVAL_MS), (
+        f"{entry['name']}: the published startup resolution {resolution} is not "
+        f"the measured {overhead} overhead plus the "
+        f"{READINESS_POLL_INTERVAL_MS}ms readiness interval its own definition "
+        "names."
     )
 
 
@@ -227,6 +261,7 @@ def test_fixture_matches_the_matrix(
         )
 
     _assert_notes(entry, results)
+    _assert_the_resolution_was_measured(entry, results["SP001"])
 
     sp005 = entry["expect"].get("SP005")
     if sp005 and sp005["branch"] in COUNT_DEPENDENT_BRANCHES:

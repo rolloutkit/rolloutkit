@@ -3042,3 +3042,132 @@ and on `04a719f`, run `33731418215`. H1 is `Darwin 25.5.0 / docker 29.7.2 /
 x86_64`. H1 readings for `slow-shutdown` are the n=8 batch taken before the fix
 plus a single confirming run after it; the `startup-within-resolution` H1
 readings are three consecutive runs of that row alone.
+
+## The band that is not the measurement's own resolution (2026-09-03; rolloutkit commit: 8b5be85d3daf48082f9c31033f610dbc490d52e3)
+
+The note above left `startup-within-resolution` with an open problem and three
+directions, none taken. This is the measurement that chose between them, and it
+found a fourth thing on the way: the band the row is judged against is built out
+of a clock the row does not run on.
+
+### The record, and where it came from
+
+`8b5be85` started keeping each contract's `actual` under `measured` in the
+per-row artifact, but that is one run old, and the numbers for older runs were
+already there in a place nobody had read: for this branch the SP001 summary
+spells all three out — *ready in 259ms; the nominal 159ms budget overrun is
+inside the 231ms startup resolution*. All 29 unexpired `matrix-results`
+artifacts were pulled and parsed. One (`33726743718`) stopped three rows in and
+never reached this one; of the 28 that did, 27 have a complete set and the
+twenty-eighth is the run that went `over_budget` and published no resolution.
+Ten runs of the row alone on H1 supply the other host.
+
+| host | n | ready | overhead | resolution |
+| --- | --- | --- | --- | --- |
+| H1 | 10 | 152.8–222.2 ms | 72.9–120.2 ms | 172.9–220.2 ms |
+| CI | 27 | 208–763 ms | 127–131 ms (n=1 published) | 214–1220 ms |
+| CI, the red run | 1 | 513 ms | — | under the 413ms overrun |
+
+That is one red in 28 CI runs, not the "roughly one run in eight" the note above
+estimated from the sample it had. The larger number is not the more reassuring
+one: the rate is not a property of the row but of the runner it lands on, and it
+is 1 whenever the runner is slow enough. Nothing schedules that.
+
+### Both edges, and why the budget was never the problem
+
+`within_resolution` holds while `budget < ready ≤ budget + resolution`, so the
+row has two edges and the margin is the nearer one:
+
+| host | nearer lower edge (`ready − budget`) | nearer upper edge (`budget + resolution − ready`) |
+| --- | --- | --- |
+| H1, worst of 10 | **52.8 ms** | 75.4 ms |
+| CI, worst of 27 | 108 ms | **58.0 ms** |
+
+Each host rides a different edge, which is why one host's readings never showed
+the problem. H1 is fast and keeps falling toward `within_budget`; CI is slow and
+keeps falling toward `over_budget`. Sweeping every budget value against all 37
+readings:
+
+| budget | worst margin, H1 | worst margin, CI |
+| --- | --- | --- |
+| 28 ms | 3.4 ms | −14.0 ms |
+| 60 ms | 35.4 ms | 18.0 ms |
+| 93 ms | 59.8 ms | 51.0 ms |
+| **97 ms (best)** | **55.8 ms** | **55.0 ms** |
+| 100 ms (shipped) | 52.8 ms | 58.0 ms |
+| 120 ms | 32.8 ms | 78.0 ms |
+
+The best budget in existence is 97ms and buys a worst case of 55.0ms. The
+shipped 100ms buys 52.8ms. **The row was already within 3ms of optimal, and the
+optimum is half a poll step.** One extra readiness poll adds 100ms; the
+excursion that made it red was +255ms. There was never a calibration to find —
+which is worth stating plainly, because "re-centre it" is the move the
+`slow-shutdown` row two commits earlier made look reasonable.
+
+For contrast, its sibling on the same contract: `startup-over-budget` measures
+5479ms against a 227ms resolution and sits **5152ms** clear of its boundary.
+That is what a row on this contract looks like when the image, and not the host,
+decides it.
+
+### The fourth thing: the readiness poll is never spent
+
+Splitting the measured startup at the TCP timestamp:
+
+| host | ready | of which TCP wait | of which readiness stage |
+| --- | --- | --- | --- |
+| H1, 10 runs | 152.8–222.2 ms | 152.1–221.3 ms | **0.6–1.6 ms** |
+| CI | 259.6 ms | 258.3 ms | **1.3 ms** |
+
+Readiness passes on its first probe, every run, on both hosts. So the 100ms that
+`startup_resolution_ms` adds for sampling is an interval this path never waits;
+the sampling that actually quantizes the number is `wait_for_tcp`'s 50ms grid,
+which the resolution does not mention. And `container_start_overhead_ms` — the
+other term, and the one that carries the band's variance — is the daemon's
+create/start round trip, paid *before* `container_started_ns`, where the
+interval being judged begins.
+
+That is the mechanism behind "two host-dependent quantities that do not move
+together" from the note above. They are not merely uncorrelated: they are two
+different clocks, one of which is outside the measurement. It is written up as a
+v0.2 item, because fixing either term changes what the branch means.
+
+### What was done
+
+`SP001.within_resolution` is classified `decision_unit`. Its proof is
+`tests/test_contracts.py::test_sp001_ignores_budget_overrun_inside_startup_resolution`,
+which already existed; the matrix row and its fixture config are gone, and a
+comment stands where the row was so the next reader does not "complete
+coverage" by putting one back.
+
+The catalog's own criterion is what it was measured against — *the verdict
+varies by machine rather than by target*. It does, and demonstrably: the same
+image and the same commit produced `within_resolution` on two CI runs and
+`over_budget` on a third, in the same batch, with only the runner's load
+differing.
+
+Dropping the row would have left the band unproved by anything live: every
+reference to `container_start_overhead_ms` in the suite was a fabricated 752.0,
+so nothing checked that a real daemon produces one. `_assert_the_resolution_was_measured`
+in `tests/test_fixtures.py` now runs on every matrix row — no magnitude, only
+that the overhead is a real positive duration and that the published resolution
+is that overhead plus the one readiness interval its definition names. The
+thirty-six rows left in the matrix each assert it once per run. The deleted row
+never asserted it directly — it only depended on it, which is how the number
+stayed unchecked for as long as the row was green.
+
+### How these were taken
+
+CI readings: the 29 unexpired `matrix-results-<run>-<attempt>` artifacts as of
+2026-09-03, parsed for the `startup-within-resolution` row — runs `32998559295`
+through `33736236258`, on commits `99ed5e5` through `8b5be85`. The red run is
+`33731430788`. H1 readings: ten consecutive runs of
+`fixtures/good-fastapi-prestop/startup-within-resolution.yaml` through the CLI
+on a clean `8b5be85`, before the row was removed — this note is the change that
+deletes that config, so reproducing them means reading it back out of `8b5be85`.
+The raw reports are not committed, for the reason `docs/measurements/README.md`
+gives; what the argument rests on is in the tables above. H1 is `Darwin 25.5.0 / docker
+29.7.2 / 11cpu`; the runner is `Linux 6.17.0-1022-azure / docker 28.0.4 / 4cpu /
+x86_64`. The budget sweep is over all 37 readings that published a resolution;
+the red run is excluded from it because it published none, and no budget rescues
+it in any case — it needs one above 100ms while H1 needs one below 158ms, and
+the resulting window leaves H1 with single-digit milliseconds.
